@@ -131,10 +131,65 @@ def pick_spotlight_entities(cfg: dict, universe: dict, iso_date: str) -> List[st
 
 
 # -----------------------------
-# Prompt
+# System Instruction & Prompt
 # -----------------------------
 
+def build_system_instruction() -> str:
+    """
+    System instruction that enforces grounding, format rules, and output structure.
+    This is processed with higher priority than the user prompt.
+    """
+    return """You are a German public sector intelligence analyst. Your task is to generate a daily briefing with CURRENT, VERIFIED information.
+
+CRITICAL RULES (MUST FOLLOW):
+1. USE GOOGLE SEARCH for EVERY factual claim. You have access to Google Search - USE IT for every piece of information.
+2. ONLY include information you can verify through search. If you cannot find current sources, OMIT the item entirely.
+3. DO NOT invent or hallucinate: tenders, budgets, deadlines, leadership changes, projects, or initiatives.
+4. DO NOT use your training data for facts - ALWAYS search for current information.
+5. Focus on information from the LAST 72 HOURS. Older information should be clearly marked with its date.
+6. DO NOT paste raw URLs in the text - citations are handled automatically via grounding metadata.
+7. Keep personal data minimal: job titles/roles are OK, but no private emails or phone numbers.
+
+OUTPUT FORMAT (Markdown - follow EXACTLY):
+
+⚡ TODAY'S TOP PRIORITY
+- One crisp, actionable item or deadline. Include "T-<days>" countdown if relevant.
+
+1. TARGET ACCOUNT INTELLIGENCE
+For each account, provide:
+- Current Signals (from last 72h, verified via search)
+- Key Contacts (roles/titles only)
+- Active Projects (verified only)
+- Advisory Opening (1-2 outreach angles based on signals)
+
+2. REGULATORY COUNTDOWN
+- 1-3 regulatory items with concrete dates and implications
+- Focus on EU/German regulations for AI, cloud, cyber, procurement
+
+3. STRATEGIC THEMES
+- 2-4 bullets per theme, tied to current developments
+
+4. PRIORITIZED ACTION ITEMS
+| P | Target | Action | Timing |
+|---|--------|--------|--------|
+Use P1/P2/P3 priority levels.
+
+5. KEY DATES AHEAD
+| Date | Event | Why it matters |
+|------|-------|----------------|
+Next 30-90 days, verified events only.
+
+6. SOURCES & METHODOLOGY
+- List source types used (portals, press releases, etc.)
+- Note the lookback window and territory focus
+
+End with: Confidential — Do not distribute externally."""
+
+
 def build_prompt(cfg: dict) -> str:
+    """
+    User prompt with the specific briefing parameters for today.
+    """
     today = today_iso_utc()
     lookback = int(cfg.get("lookback_hours", 72))
 
@@ -145,108 +200,53 @@ def build_prompt(cfg: dict) -> str:
     spotlight = pick_spotlight_entities(cfg, universe, today)
     spotlight_str = ", ".join(spotlight) if spotlight else "(none)"
 
-    # Accounts blocks
-    acct_blocks: List[str] = []
-    for i, a in enumerate(cfg.get("accounts", []), start=1):
-        acct_blocks.append(
-            f"""
-1.{i} {a.get("name", "Unknown Account")}
-
-Current Signals:
-- (Find verified recent signals within the lookback window; omit if not verifiable.)
-
-Key Contacts:
-- (List roles/titles only; do not include private personal data.)
-- Seeds: {", ".join(a.get("contact_roles_seed", []))}
-
-Active Projects:
-- (If verifiable, list active initiatives/programmes/procurements; omit if not verifiable.)
-- Seeds: {", ".join(a.get("active_projects_seed", []))}
-
-Advisory Opening:
-- (Translate verified signals into a consultative opening; include 1–2 outreach angles.)
-""".strip()
-        )
-
-    # Themes blocks
-    theme_blocks: List[str] = []
-    for j, t in enumerate(cfg.get("themes", []), start=1):
-        theme_blocks.append(
-            f"""
-3.{j} {t.get("name", "Theme")}
-- (2–4 bullets; tie to public-sector realities and BD positioning.)
-- Seeds: {", ".join(t.get("seed", []))}
-""".strip()
-        )
-
-    acct_section = "\n\n".join(acct_blocks) if acct_blocks else "(No target accounts configured.)"
-    theme_section = "\n\n".join(theme_blocks) if theme_blocks else "(No strategic themes configured.)"
-
-    reg_items = cfg.get("regulatory_items", []) or []
-    if reg_items:
-        reg_seed_lines = []
-        for r in reg_items:
-            reg_seed_lines.append(f"- {r.get('name','(item)')}: {r.get('date','(date)')} ({r.get('notes','')})")
-        reg_seed = "\n".join(reg_seed_lines)
-    else:
-        reg_seed = "- (Find the most relevant regulatory countdown items for the territory.)"
-
     brand_title = (cfg.get("brand") or {}).get("title", "PUBLIC SECTOR INTELLIGENCE BRIEFING")
-    brand_subtitle = (cfg.get("brand") or {}).get("subtitle", "Daily Strategic Analysis (grounded with Google Search)")
 
-    return f"""
-{brand_title}
-{brand_subtitle}
+    # Build account details
+    acct_lines: List[str] = []
+    for a in cfg.get("accounts", []):
+        name = a.get("name", "Unknown")
+        projects = ", ".join(a.get("active_projects_seed", []))
+        roles = ", ".join(a.get("contact_roles_seed", []))
+        acct_lines.append(f"- {name}: Projects to investigate: {projects}. Key roles: {roles}")
+    acct_section = "\n".join(acct_lines) if acct_lines else "- No specific accounts configured"
 
-Date: {today}
-Prepared for: {prepared_for}
-Territory: {territory}
-Lookback: last ~{lookback} hours
+    # Build theme details
+    theme_lines: List[str] = []
+    for t in cfg.get("themes", []):
+        name = t.get("name", "Theme")
+        seeds = ", ".join(t.get("seed", []))
+        theme_lines.append(f"- {name}: Focus areas: {seeds}")
+    theme_section = "\n".join(theme_lines) if theme_lines else "- No specific themes configured"
 
-ENTITY SPOTLIGHT (rotating): {spotlight_str}
+    # Build regulatory items
+    reg_lines: List[str] = []
+    for r in cfg.get("regulatory_items", []):
+        reg_lines.append(f"- {r.get('name', 'Item')}: {r.get('date', 'TBD')} - {r.get('notes', '')}")
+    reg_section = "\n".join(reg_lines) if reg_lines else "- Search for relevant regulatory deadlines"
 
-NON-NEGOTIABLE RULES:
-- Use Google Search grounding for EVERY factual claim.
-- Do NOT invent tenders, budgets, deadlines, leadership moves, or initiatives.
-- If you cannot find credible sources for an item, omit it.
-- Do NOT paste raw URLs in the text. Citations will be attached via grounding metadata.
-- Keep personal data minimal: roles/titles OK; no private emails/phone numbers.
-- COVERAGE GOAL: Provide broad territory coverage using sources that span many entities (procurement portals, pressrooms, etc.).
-- Additionally, focus deeper on the ENTITY SPOTLIGHT list above.
+    return f"""Generate today's {brand_title}
 
-OUTPUT MUST MATCH THIS STRUCTURE (Markdown):
+TODAY'S DATE: {today}
+PREPARED FOR: {prepared_for}
+TERRITORY: {territory}
+LOOKBACK WINDOW: {lookback} hours
 
-⚡ TODAY'S TOP PRIORITY
-- One crisp primary action item or deadline alert. If a countdown is relevant, include "T-<days>".
-- Must be supported by sources.
+IMPORTANT: Search Google for CURRENT news and developments from the last {lookback} hours for each section below.
 
-1. TARGET ACCOUNT INTELLIGENCE
+TARGET ACCOUNTS TO RESEARCH:
 {acct_section}
 
-2. REGULATORY COUNTDOWN
-- Include 1–3 items that matter NOW for the territory. Prefer EU/national regs impacting AI/cloud/cyber/procurement.
-- Seeds you may consider (verify everything):
-{reg_seed}
+ENTITY SPOTLIGHT (search for recent news about these):
+{spotlight_str}
 
-3. STRATEGIC THEMES
+REGULATORY ITEMS TO VERIFY AND UPDATE:
+{reg_section}
+
+STRATEGIC THEMES TO ANALYZE:
 {theme_section}
 
-4. PRIORITIZED ACTION ITEMS
-Provide a Markdown table with columns: P | Target | Action | Timing
-- P must be P1/P2/P3.
-- Actions must be concrete outreach/analysis steps.
-
-5. KEY DATES AHEAD
-Provide a Markdown table with columns: Date | Event | Why it matters
-- Next ~30–90 days; only verifiable items.
-
-6. SOURCES & METHODOLOGY
-- List the source types you used (e.g., official portals, procurement portals, ministry press releases).
-- Briefly describe how you filtered signals (lookback window, territory focus).
-
-Finish with:
-Confidential — Do not distribute externally.
-""".strip()
+Now search Google for current information and generate the briefing following the exact format from your instructions."""
 
 
 # -----------------------------
@@ -396,23 +396,26 @@ def main() -> None:
     api_key = require_env("GEMINI_API_KEY")
     client = genai.Client(api_key=api_key)
 
-    # Search grounding tool
+    # System instruction for strict format and grounding enforcement
+    system_instruction = build_system_instruction()
+
+    # Google Search grounding tool
     grounding_tool = types.Tool(google_search=types.GoogleSearch())
     gen_cfg = types.GenerateContentConfig(
+        system_instruction=system_instruction,
         tools=[grounding_tool],
         temperature=float((cfg.get("model") or {}).get("temperature", 0.2)),
         top_p=0.95,
         max_output_tokens=int((cfg.get("model") or {}).get("max_output_tokens", 3800)),
     )
 
-    # Strong defaults (known-good current model IDs)
-    # Official examples use gemini-2.5-flash for generate_content. :contentReference[oaicite:1]{index=1}
+    # Model fallback chain - prioritize stable models with good Search grounding support
     safe_models = [
-        "gemini-2.5-flash",
-        "gemini-2.5-flash-lite",
-        "gemini-2.0-flash",
-        "gemini-flash-latest",   # alias to latest flash variant :contentReference[oaicite:2]{index=2}
-        "gemini-2.5-pro",
+        "gemini-2.0-flash",           # Stable, excellent Search grounding support
+        "gemini-2.0-flash-001",       # Specific stable version
+        "gemini-2.5-flash-preview-05-20",  # Preview with grounding
+        "gemini-2.5-pro-preview-05-06",    # Pro preview
+        "gemini-flash-latest",        # Latest flash alias
     ]
 
     cfg_models_raw = (cfg.get("model") or {}).get("preferred_models", []) or []
