@@ -382,7 +382,6 @@ def generate_with_fallback(
 def main() -> None:
     cfg = load_config()
 
-    require_env("GEMINI_API_KEY")
     recipient_env = require_env("RECIPIENT_EMAIL")
     smtp_user = require_env("SMTP_USER")
     smtp_password = require_env("SMTP_PASSWORD")
@@ -393,8 +392,9 @@ def main() -> None:
 
     prompt = build_prompt(cfg)
 
-    # Create client (reads GEMINI_API_KEY from env)
-    client = genai.Client()
+    # Create client with explicit API key (google-genai SDK looks for GOOGLE_API_KEY by default)
+    api_key = require_env("GEMINI_API_KEY")
+    client = genai.Client(api_key=api_key)
 
     # Search grounding tool
     grounding_tool = types.Tool(google_search=types.GoogleSearch())
