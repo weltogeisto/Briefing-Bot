@@ -1,0 +1,242 @@
+{
+  "version": 2,
+  "notes": "Expanded with ministries + county/city lists for Saxony, Saxony-Anhalt, Thuringia, and Lower Saxony; plus central IT providers and selected state authorities. Names kept short for searchability.",
+  "states": {
+    "Saxony": {
+      "categories": {
+        "State ministries / Staatsministerien": [
+          "Sächsische Staatskanzlei",
+          "Sächsisches Staatsministerium der Finanzen",
+          "Sächsisches Staatsministerium des Innern",
+          "Sächsisches Staatsministerium für Wirtschaft, Arbeit, Energie und Klimaschutz",
+          "Sächsisches Staatsministerium für Kultus",
+          "Sächsisches Staatsministerium für Wissenschaft, Kultur und Tourismus",
+          "Sächsisches Staatsministerium für Soziales, Gesundheit und Gesellschaftlichen Zusammenhalt",
+          "Sächsisches Staatsministerium für Energie, Klimaschutz, Umwelt und Landwirtschaft",
+          "Sächsisches Staatsministerium der Justiz und für Demokratie, Europa und Gleichstellung",
+          "Sächsisches Staatsministerium für Regionalentwicklung"
+        ],
+        "Counties / Landkreise": [
+          "Landkreis Bautzen",
+          "Erzgebirgskreis",
+          "Landkreis Görlitz",
+          "Landkreis Leipzig",
+          "Landkreis Meißen",
+          "Landkreis Mittelsachsen",
+          "Landkreis Nordsachsen",
+          "Landkreis Sächsische Schweiz-Osterzgebirge",
+          "Vogtlandkreis",
+          "Landkreis Zwickau"
+        ],
+        "Independent cities / Kreisfreie Städte": [
+          "Chemnitz",
+          "Dresden",
+          "Leipzig"
+        ],
+        "Central IT / IT service provider": [
+          "Staatsbetrieb Sächsische Informatik Dienste (SID)"
+        ],
+        "State authorities / Landesbehörden (seed)": [
+          "Landesdirektion Sachsen (LDS)"
+        ]
+      }
+    },
+    "Saxony-Anhalt": {
+      "categories": {
+        "State ministries / Ministerien": [
+          "Staatskanzlei und Ministerium für Kultur Sachsen-Anhalt",
+          "Ministerium für Inneres und Sport Sachsen-Anhalt",
+          "Ministerium für Justiz und Verbraucherschutz Sachsen-Anhalt",
+          "Ministerium der Finanzen Sachsen-Anhalt",
+          "Ministerium für Bildung Sachsen-Anhalt",
+          "Ministerium für Wirtschaft, Tourismus, Landwirtschaft und Forsten Sachsen-Anhalt",
+          "Ministerium für Arbeit, Soziales, Gesundheit und Gleichstellung Sachsen-Anhalt",
+          "Ministerium für Wissenschaft, Energie, Klimaschutz und Umwelt Sachsen-Anhalt",
+          "Ministerium für Infrastruktur und Digitales Sachsen-Anhalt"
+        ],
+        "Counties / Landkreise": [
+          "Altmarkkreis Salzwedel",
+          "Landkreis Anhalt-Bitterfeld",
+          "Landkreis Börde",
+          "Burgenlandkreis",
+          "Landkreis Harz",
+          "Landkreis Jerichower Land",
+          "Landkreis Mansfeld-Südharz",
+          "Saalekreis",
+          "Salzlandkreis",
+          "Landkreis Stendal",
+          "Landkreis Wittenberg"
+        ],
+        "Independent cities / Kreisfreie Städte": [
+          "Magdeburg",
+          "Dessau-Roßlau",
+          "Halle (Saale)"
+        ],
+        "Central IT / IT service provider": [
+          "Dataport AöR (Trägerland Sachsen-Anhalt)",
+          "Landesrechenzentrum Sachsen-Anhalt (LRZ) / Dataport"
+        ],
+        "State authorities / Landesbehörden": [
+          "Landesverwaltungsamt Sachsen-Anhalt",
+          "Landesrechnungshof Sachsen-Anhalt",
+          "Landesarchiv Sachsen-Anhalt"
+        ]
+      }
+    },
+    "Thuringia": {
+      "categories": {
+        "State ministries / Ministerien": [
+          "Thüringer Staatskanzlei",
+          "Thüringer Ministerium für Bildung, Wissenschaft und Kultur",
+          "Thüringer Ministerium für Inneres, Kommunales und Landesentwicklung",
+          "Thüringer Ministerium für Migration, Justiz und Verbraucherschutz",
+          "Thüringer Finanzministerium",
+          "Thüringer Ministerium für Wirtschaft, Landwirtschaft und Ländlichen Raum",
+          "Thüringer Ministerium für Soziales, Gesundheit, Arbeit und Familie",
+          "Thüringer Ministerium für Umwelt, Energie, Naturschutz und Forsten",
+          "Thüringer Ministerium für Digitales und Infrastruktur"
+        ],
+        "Counties / Landkreise": [
+          "Landkreis Altenburger Land",
+          "Landkreis Eichsfeld",
+          "Landkreis Gotha",
+          "Landkreis Greiz",
+          "Landkreis Hildburghausen",
+          "Ilm-Kreis",
+          "Kyffhäuserkreis",
+          "Landkreis Nordhausen",
+          "Saale-Holzland-Kreis",
+          "Saale-Orla-Kreis",
+          "Landkreis Saalfeld-Rudolstadt",
+          "Landkreis Schmalkalden-Meiningen",
+          "Landkreis Sömmerda",
+          "Landkreis Sonneberg",
+          "Unstrut-Hainich-Kreis",
+          "Wartburgkreis",
+          "Landkreis Weimarer Land"
+        ],
+        "Independent cities / Kreisfreie Städte": [
+          "Erfurt",
+          "Gera",
+          "Jena",
+          "Suhl",
+          "Weimar"
+        ],
+        "Subordinate authorities & institutions (selection)": [
+          "Landesarchiv Thüringen",
+          "Thüringer Landesamt für Denkmalpflege und Archäologie",
+          "Amt für Verfassungsschutz Thüringen",
+          "Landespolizeidirektion Thüringen",
+          "Landeskriminalamt Thüringen",
+          "Thüringer Landesverwaltungsamt",
+          "Thüringer Landesamt für Statistik",
+          "Thüringer Fachhochschule für öffentliche Verwaltung",
+          "Thüringer Landesfeuerwehr- und Katastrophenschutzschule",
+          "Geschäftsbereich Generalstaatsanwaltschaft Thüringen",
+          "Geschäftsbereich Thüringer Oberlandesgericht (ThOLG)",
+          "Geschäftsbereich Thüringer Landesarbeitsgericht (ThLAG)",
+          "Geschäftsbereich Thüringer Landessozialgericht (ThLSG)",
+          "Geschäftsbereich Thüringer Finanzgericht (ThFG)",
+          "Geschäftsbereich Justizvollzug Thüringen",
+          "Thüringer Landesamt für Finanzen",
+          "Thüringer Finanzämter",
+          "Thüringer Landesamt für Landwirtschaft und Ländlichen Raum",
+          "Thüringer Landesamt für Verbraucherschutz",
+          "Thüringer Landesrechenzentrum (TLRZ)",
+          "Thüringer Landesamt für Bau und Verkehr",
+          "Thüringer Landesamt für Bodenmanagement und Geoinformation",
+          "Thüringer Landtag",
+          "Thüringer Rechnungshof"
+        ],
+        "Central IT / IT service provider": [
+          "Thüringer Landesrechenzentrum (TLRZ)"
+        ]
+      }
+    },
+    "Lower Saxony": {
+      "categories": {
+        "State ministries / Ministerien": [
+          "Niedersächsische Staatskanzlei",
+          "Niedersächsisches Ministerium für Inneres, Sport und Digitalisierung",
+          "Niedersächsisches Finanzministerium",
+          "Niedersächsisches Ministerium für Soziales, Arbeit, Gesundheit und Gleichstellung",
+          "Niedersächsisches Ministerium für Wissenschaft und Kultur",
+          "Niedersächsisches Kultusministerium",
+          "Niedersächsisches Ministerium für Wirtschaft, Verkehr und Bauen",
+          "Niedersächsisches Ministerium für Ernährung, Landwirtschaft und Verbraucherschutz",
+          "Niedersächsisches Justizministerium",
+          "Niedersächsisches Ministerium für Umwelt, Energie und Klimaschutz",
+          "Niedersächsisches Ministerium für Bundes- und Europaangelegenheiten und Regionale Entwicklung"
+        ],
+        "Counties / Landkreise (incl. Region Hannover)": [
+          "Ammerland",
+          "Aurich",
+          "Celle",
+          "Cloppenburg",
+          "Cuxhaven",
+          "Diepholz",
+          "Emsland",
+          "Friesland",
+          "Gifhorn",
+          "Goslar",
+          "Grafschaft Bentheim",
+          "Göttingen",
+          "Hameln-Pyrmont",
+          "Harburg",
+          "Heidekreis",
+          "Helmstedt",
+          "Hildesheim",
+          "Holzminden",
+          "Leer",
+          "Lüchow-Dannenberg",
+          "Lüneburg",
+          "Nienburg/Weser",
+          "Northeim",
+          "Oldenburg",
+          "Osnabrück",
+          "Osterholz",
+          "Peine",
+          "Rotenburg (Wümme)",
+          "Schaumburg",
+          "Stade",
+          "Uelzen",
+          "Vechta",
+          "Verden",
+          "Wesermarsch",
+          "Wittmund",
+          "Wolfenbüttel",
+          "Region Hannover"
+        ],
+        "Independent cities / Kreisfreie Städte": [
+          "Braunschweig",
+          "Delmenhorst",
+          "Emden",
+          "Oldenburg (Oldb)",
+          "Osnabrück",
+          "Salzgitter",
+          "Wilhelmshaven",
+          "Wolfsburg"
+        ],
+        "Constitutional bodies (selection)": [
+          "Niedersächsischer Landtag",
+          "Niedersächsischer Staatsgerichtshof",
+          "Die Landesbeauftragte für den Datenschutz Niedersachsen (LfD)",
+          "Niedersächsischer Landesrechnungshof"
+        ],
+        "Central IT / IT service provider": [
+          "Landesbetrieb IT.Niedersachsen"
+        ]
+      }
+    },
+    "Federal / cross-state": {
+      "categories": {
+        "Federal agencies (seed)": [
+          "Bundesverwaltungsamt (BVA)"
+        ],
+        "Coordination bodies (seed)": [
+          "FITKO / Föderale IT-Kooperation"
+        ]
+      }
+    }
+  }
+}
