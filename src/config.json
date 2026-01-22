@@ -1,16 +1,11 @@
 {
   "brand": {
-    "title": "🇩🇪 PUBLIC SECTOR INTELLIGENCE BRIEFING",
-    "subtitle": "Daily Strategic Analysis (grounded with Google Search)"
+    "title": "GARTNER PUBLIC SECTOR DAILY",
+    "subtitle": "New Business Intelligence Briefing"
   },
-  "prepared_for": "[Your Name]",
+  "prepared_for": "Hendrik Steinort, Business Development Director",
   "territory": [
-    "Saxony",
-    "Saxony-Anhalt",
-    "Thuringia",
-    "Lower Saxony",
-    "FITKO",
-    "BVA"
+    "Germany Public Sector"
   ],
   "lookback_hours": 72,
   "accounts": [
@@ -130,7 +125,7 @@
     }
   ],
   "email": {
-    "subject_prefix": "Public Sector Intelligence Briefing"
+    "subject_prefix": "Gartner Public Sector Daily"
   },
   "model": {
     "preferred_models": [

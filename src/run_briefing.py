@@ -139,7 +139,7 @@ def build_system_instruction() -> str:
     System instruction that enforces grounding, format rules, and output structure.
     This is processed with higher priority than the user prompt.
     """
-    return """You are a German public sector intelligence analyst. Your task is to generate a daily briefing with CURRENT, VERIFIED information.
+    return """You are a German public sector business intelligence analyst creating a daily briefing for business development purposes.
 
 CRITICAL RULES (MUST FOLLOW):
 1. USE GOOGLE SEARCH for EVERY factual claim. You have access to Google Search - USE IT for every piece of information.
@@ -150,40 +150,113 @@ CRITICAL RULES (MUST FOLLOW):
 6. DO NOT paste raw URLs in the text - citations are handled automatically via grounding metadata.
 7. Keep personal data minimal: job titles/roles are OK, but no private emails or phone numbers.
 
-OUTPUT FORMAT (Markdown - follow EXACTLY):
+OUTPUT FORMAT (Markdown - follow this structure EXACTLY):
+
+---
 
 ⚡ TODAY'S TOP PRIORITY
-- One crisp, actionable item or deadline. Include "T-<days>" countdown if relevant.
 
-1. TARGET ACCOUNT INTELLIGENCE
-For each account, provide:
-- Current Signals (from last 72h, verified via search)
-- Key Contacts (roles/titles only)
-- Active Projects (verified only)
-- Advisory Opening (1-2 outreach angles based on signals)
+**[Key deadline or development with T-X Days countdown if applicable].** [1-2 sentences explaining why this matters and what action to take.]
 
-2. REGULATORY COUNTDOWN
-- 1-3 regulatory items with concrete dates and implications
-- Focus on EU/German regulations for AI, cloud, cyber, procurement
+**Gartner Play:** [Specific positioning recommendation - what to pitch and how.]
 
-3. STRATEGIC THEMES
-- 2-4 bullets per theme, tied to current developments
+---
 
-4. PRIORITIZED ACTION ITEMS
-| P | Target | Action | Timing |
-|---|--------|--------|--------|
-Use P1/P2/P3 priority levels.
+## 1. VERIFIED HARD SIGNALS
 
-5. KEY DATES AHEAD
-| Date | Event | Why it matters |
-|------|-------|----------------|
-Next 30-90 days, verified events only.
+*Confirmed developments requiring immediate BD attention*
 
-6. SOURCES & METHODOLOGY
-- List source types used (portals, press releases, etc.)
-- Note the lookback window and territory focus
+### 1.1 [Signal Title with Key Metric if applicable]
 
-End with: Confidential — Do not distribute externally."""
+| Element | Details |
+|---------|---------|
+| **Signal** | [What happened - be specific with numbers, dates, entities] |
+| **Source** | [Official source and date] |
+| **Advisory Opening** | [How to position - specific service/capability to offer, pain point to address] |
+| **Gartner Asset** | [Relevant Gartner research, frameworks, or tools to reference] |
+
+### 1.2 [Next Signal Title]
+[Same table structure...]
+
+### 1.3 [Next Signal Title]
+[Same table structure...]
+
+---
+
+## 2. REGULATORY COUNTDOWN: [PRIMARY REGULATION]
+
+🚨 **CRITICAL DEADLINE: [Date] (T-X Days)**
+
+[1-2 sentences on what takes effect and implications]
+
+**What Public Sector Agencies Are Missing:**
+- [Gap 1]
+- [Gap 2]
+- [Gap 3]
+
+**Gartner Advisory Positioning:**
+- **[Capability Area 1]** — [How to position]
+- **[Capability Area 2]** — [How to position]
+- **[Capability Area 3]** — [How to position]
+
+*[Any relevant note about upcoming platforms, registries, or requirements]*
+
+---
+
+## 3. STRATEGIC THEME: [THEME NAME]
+
+[2-3 sentence overview of current state and why it matters]
+
+**Verified Developments:**
+- [Development 1 with entity and date]
+- [Development 2 with entity and date]
+- [Development 3 with entity and date]
+
+**Gartner Play:** Position **[specific capabilities]** as core to [objective]. Talk track: [specific talking points].
+
+---
+
+## 4. PRIORITIZED ACTION ITEMS
+
+| Priority | Target | Action | Timing |
+|----------|--------|--------|--------|
+| **P1** | [Entity] | [Specific action with context] | This Week |
+| **P1** | [Entity] | [Specific action with context] | This Week |
+| **P2** | [Entity] | [Specific action with context] | Next 2 Weeks |
+| **P2** | [Entity] | [Specific action with context] | [Quarter] |
+| **P3** | [Entity] | [Specific action with context] | [Quarter] |
+
+---
+
+## 5. CALENDAR: KEY DATES AHEAD
+
+| Date | Event |
+|------|-------|
+| [Month Year] | [Event description] |
+| [Specific Date] | [Event with significance] |
+| [Specific Date] | **[MAJOR DEADLINE]** — [Description] |
+
+---
+
+## 6. GARTNER CAPABILITY QUICK REFERENCE
+
+*Match these capabilities to prospect pain points for effective positioning*
+
+| Capability Theme | Key Deliverables |
+|------------------|------------------|
+| **AI Governance & Compliance** | [Specific deliverables] |
+| **Cloud & Infrastructure** | [Specific deliverables] |
+| **Procurement & Sourcing** | [Specific deliverables] |
+| **Sovereignty & Exit** | [Specific deliverables] |
+| **Workforce & Literacy** | [Specific deliverables] |
+
+---
+
+*This briefing is based on verified market signals as of [DATE].*
+
+*Sources: [List key source domains used]*
+
+**For Gartner internal BD use only. Do not distribute externally.**"""
 
 
 def build_prompt(cfg: dict) -> str:
@@ -200,53 +273,77 @@ def build_prompt(cfg: dict) -> str:
     spotlight = pick_spotlight_entities(cfg, universe, today)
     spotlight_str = ", ".join(spotlight) if spotlight else "(none)"
 
-    brand_title = (cfg.get("brand") or {}).get("title", "PUBLIC SECTOR INTELLIGENCE BRIEFING")
+    brand_title = (cfg.get("brand") or {}).get("title", "GARTNER PUBLIC SECTOR DAILY")
+    brand_subtitle = (cfg.get("brand") or {}).get("subtitle", "New Business Intelligence Briefing")
 
     # Build account details
     acct_lines: List[str] = []
     for a in cfg.get("accounts", []):
         name = a.get("name", "Unknown")
         projects = ", ".join(a.get("active_projects_seed", []))
-        roles = ", ".join(a.get("contact_roles_seed", []))
-        acct_lines.append(f"- {name}: Projects to investigate: {projects}. Key roles: {roles}")
-    acct_section = "\n".join(acct_lines) if acct_lines else "- No specific accounts configured"
+        acct_lines.append(f"- {name}: Active projects/areas: {projects}")
+    acct_section = "\n".join(acct_lines) if acct_lines else "- German public sector entities"
 
     # Build theme details
     theme_lines: List[str] = []
     for t in cfg.get("themes", []):
         name = t.get("name", "Theme")
         seeds = ", ".join(t.get("seed", []))
-        theme_lines.append(f"- {name}: Focus areas: {seeds}")
-    theme_section = "\n".join(theme_lines) if theme_lines else "- No specific themes configured"
+        theme_lines.append(f"- {name}: {seeds}")
+    theme_section = "\n".join(theme_lines) if theme_lines else "- Digital transformation themes"
 
     # Build regulatory items
     reg_lines: List[str] = []
     for r in cfg.get("regulatory_items", []):
         reg_lines.append(f"- {r.get('name', 'Item')}: {r.get('date', 'TBD')} - {r.get('notes', '')}")
-    reg_section = "\n".join(reg_lines) if reg_lines else "- Search for relevant regulatory deadlines"
+    reg_section = "\n".join(reg_lines) if reg_lines else "- EU AI Act and related regulations"
+
+    # Build capability themes for quick reference
+    capability_themes = [
+        "AI Governance & Compliance: AI strategy roadmaps, risk frameworks, AI Act alignment, AI model inventory templates, risk assessment playbooks",
+        "Cloud & Infrastructure: Landing zone design, FinOps/cost governance, private/hybrid cloud architectures, migration-factory patterns",
+        "Procurement & Sourcing: AI contracting guidance, market intelligence, vendor landscape analysis (MQ SCPS), lifecycle SLAs",
+        "Sovereignty & Exit: Data residency assessments, sovereign cloud options, exit-strategy planning with trigger documentation",
+        "Workforce & Literacy: AI literacy programs, cohort training, CoE setup, model science and AI security skill development"
+    ]
 
     return f"""Generate today's {brand_title}
+{brand_subtitle}
 
-TODAY'S DATE: {today}
-PREPARED FOR: {prepared_for}
-TERRITORY: {territory}
-LOOKBACK WINDOW: {lookback} hours
+**Date:** {today}
+**Prepared for:** {prepared_for}
+**Territory:** {territory}
 
-IMPORTANT: Search Google for CURRENT news and developments from the last {lookback} hours for each section below.
+SEARCH GOOGLE NOW for current developments from the last {lookback} hours.
 
-TARGET ACCOUNTS TO RESEARCH:
+PRIORITY ENTITIES TO RESEARCH (search for recent news, press releases, procurement announcements):
 {acct_section}
 
-ENTITY SPOTLIGHT (search for recent news about these):
+ADDITIONAL ENTITIES IN TODAY'S SPOTLIGHT:
 {spotlight_str}
 
-REGULATORY ITEMS TO VERIFY AND UPDATE:
+KEY REGULATORY ITEMS (verify current status and calculate T-minus days from today {today}):
 {reg_section}
 
-STRATEGIC THEMES TO ANALYZE:
+STRATEGIC THEMES TO COVER (pick ONE for section 3, choose based on most newsworthy current developments):
 {theme_section}
 
-Now search Google for current information and generate the briefing following the exact format from your instructions."""
+GARTNER CAPABILITY THEMES FOR SECTION 6:
+{chr(10).join('- ' + c for c in capability_themes)}
+
+INSTRUCTIONS:
+1. Search Google for CURRENT news about each entity and theme
+2. Find 2-3 VERIFIED hard signals with real sources (budgets, MoUs, procurements, policy announcements)
+3. Calculate exact T-minus days for regulatory deadlines from today's date ({today})
+4. Create actionable Gartner Plays and Advisory Openings for each signal
+5. Generate the briefing following the EXACT format from your system instructions
+6. Include real source domains in the footer (e.g., BMDS.bund.de, Bundestag.de, eGovernment.de)
+
+START THE OUTPUT WITH:
+🇩🇪 {brand_title}
+{brand_subtitle}
+
+Date: {today} | Prepared for: {prepared_for} | Territory: {territory}"""
 
 
 # -----------------------------
