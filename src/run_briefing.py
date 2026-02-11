@@ -421,6 +421,21 @@ def send_email(subject: str, html_body: str, sender: str, recipients: List[str],
 # Model selection + generation
 # -----------------------------
 
+class QuotaExceededError(RuntimeError):
+    """Raised when Gemini requests fail due to quota / rate-limit exhaustion."""
+
+
+def summarize_error(exc: Exception) -> str:
+    msg = " ".join(str(exc).strip().split())
+    return msg[:280] + ("..." if len(msg) > 280 else "")
+
+
+def is_quota_error(exc: Exception) -> bool:
+    msg = str(exc).lower()
+    markers = ["resource_exhausted", "429", "too many requests", "quota", "rate limit", "ratelimit"]
+    return any(m in msg for m in markers)
+
+
 def list_available_models(client: genai.Client, limit: int = 40) -> List[str]:
     """
     Best-effort: list available model IDs for debugging in Actions logs.
@@ -442,6 +457,29 @@ def list_available_models(client: genai.Client, limit: int = 40) -> List[str]:
     return out
 
 
+def run_preflight_check(client: genai.Client, model_ids: List[str]) -> None:
+    """
+    Send one tiny request so we can fail fast with a clear reason in logs.
+    """
+    if not model_ids:
+        raise RuntimeError("No model IDs configured for preflight check.")
+
+    model = model_ids[0]
+    cfg = types.GenerateContentConfig(
+        temperature=0.0,
+        max_output_tokens=20,
+    )
+    try:
+        client.models.generate_content(model=model, contents="Respond exactly with: OK", config=cfg)
+        print(f"INFO: Preflight check succeeded with model '{model}'.")
+    except Exception as e:
+        msg = summarize_error(e)
+        print(f"WARN: Preflight check failed on model '{model}': {msg}")
+        if is_quota_error(e):
+            raise QuotaExceededError(f"Preflight quota/rate-limit failure on '{model}': {msg}") from e
+        raise RuntimeError(f"Preflight failed on '{model}': {msg}") from e
+
+
 def generate_with_fallback(
     client: genai.Client,
     model_ids: List[str],
@@ -450,13 +488,17 @@ def generate_with_fallback(
 ):
     last_err: Optional[Exception] = None
     tried: List[str] = []
+    quota_seen = False
 
     for mid in model_ids:
         try:
             tried.append(mid)
+            print(f"INFO: Trying model='{mid}' max_output_tokens={gen_cfg.max_output_tokens}")
             return client.models.generate_content(model=mid, contents=prompt, config=gen_cfg)
         except Exception as e:
             last_err = e
+            quota_seen = quota_seen or is_quota_error(e)
+            print(f"WARN: Model '{mid}' failed: {summarize_error(e)}")
 
     # If everything failed, print available models (helps you fix config without guesswork)
     avail = list_available_models(client, limit=40)
@@ -465,11 +507,31 @@ def generate_with_fallback(
         for x in avail:
             print(f" - {x}")
 
-    raise RuntimeError(
+    err_msg = (
         "All models failed.\n"
         f"Tried: {tried}\n"
-        f"Last error: {last_err}"
+        f"Last error: {summarize_error(last_err) if last_err else 'unknown'}"
     )
+    if quota_seen:
+        raise QuotaExceededError(err_msg)
+    raise RuntimeError(err_msg)
+
+
+def build_quota_alert_html(subject_prefix: str, error_message: str) -> str:
+    now_utc = dt.datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC")
+    return f"""<html>
+  <body style="font-family: Arial, Helvetica, sans-serif; line-height: 1.45;">
+    <h2>{subject_prefix} — quota/rate-limit alert</h2>
+    <p>The daily briefing run could not complete due to Gemini API quota/rate limits.</p>
+    <ul>
+      <li><strong>Time:</strong> {now_utc}</li>
+      <li><strong>Reason:</strong> {error_message}</li>
+      <li><strong>Action needed:</strong> Enable billing or increase Gemini API quota/rate limits for this project.</li>
+    </ul>
+    <p>This is an operational fallback email sent by the workflow when content generation is blocked.</p>
+  </body>
+</html>
+"""
 
 
 # -----------------------------
@@ -498,39 +560,63 @@ def main() -> None:
 
     # Google Search grounding tool
     grounding_tool = types.Tool(google_search=types.GoogleSearch())
-    gen_cfg = types.GenerateContentConfig(
-        system_instruction=system_instruction,
-        tools=[grounding_tool],
-        temperature=float((cfg.get("model") or {}).get("temperature", 0.2)),
-        top_p=0.95,
-        max_output_tokens=int((cfg.get("model") or {}).get("max_output_tokens", 3800)),
-    )
+    base_max_tokens = int((cfg.get("model") or {}).get("max_output_tokens", 3800))
+    base_temperature = float((cfg.get("model") or {}).get("temperature", 0.2))
 
-    # Model fallback chain - prioritize stable models with good Search grounding support
-    safe_models = [
-        "gemini-2.0-flash",           # Stable, excellent Search grounding support
-        "gemini-2.0-flash-001",       # Specific stable version
-        "gemini-2.5-flash-preview-05-20",  # Preview with grounding
-        "gemini-2.5-pro-preview-05-06",    # Pro preview
-        "gemini-flash-latest",        # Latest flash alias
-    ]
-
+    # Tiered models: config first, then stable low-cost fallbacks.
     cfg_models_raw = (cfg.get("model") or {}).get("preferred_models", []) or []
     cfg_models = sanitize_config_models(cfg_models_raw)
+    low_cost_fallback_models = [
+        "gemini-2.5-flash-lite",
+        "gemini-2.0-flash-lite",
+        "gemini-2.0-flash",
+        "gemini-flash-latest",
+    ]
+    model_ids = dedup_keep_order(cfg_models + low_cost_fallback_models)
+    if not model_ids:
+        raise RuntimeError("No non-retired model IDs are configured.")
 
-    # Always try safe models first, then any user config models (minus retired ones)
-    model_ids = dedup_keep_order(safe_models + cfg_models)
+    # Preflight to classify common operational failures early.
+    run_preflight_check(client, model_ids)
 
-    response = generate_with_fallback(client, model_ids, prompt, gen_cfg)
+    primary_cfg = types.GenerateContentConfig(
+        system_instruction=system_instruction,
+        tools=[grounding_tool],
+        temperature=base_temperature,
+        top_p=0.95,
+        max_output_tokens=base_max_tokens,
+    )
 
-    md_with_cites = add_citations_markdown(response)
-    html = markdown_to_html(md_with_cites)
+    reduced_cfg = types.GenerateContentConfig(
+        system_instruction=system_instruction,
+        tools=[grounding_tool],
+        temperature=base_temperature,
+        top_p=0.95,
+        max_output_tokens=min(2200, base_max_tokens),
+    )
 
     subject_prefix = (cfg.get("email") or {}).get("subject_prefix", "Public Sector Intelligence Briefing")
-    subject = f"{subject_prefix} — {today_iso_utc()}"
 
-    send_email(subject, html, smtp_user, recipients, smtp_password)
-    print("OK: briefing sent.")
+    try:
+        try:
+            response = generate_with_fallback(client, model_ids, prompt, primary_cfg)
+        except QuotaExceededError:
+            print("WARN: Quota pressure detected, retrying with reduced token budget.")
+            response = generate_with_fallback(client, model_ids, prompt, reduced_cfg)
+
+        md_with_cites = add_citations_markdown(response)
+        html = markdown_to_html(md_with_cites)
+
+        subject = f"{subject_prefix} — {today_iso_utc()}"
+        send_email(subject, html, smtp_user, recipients, smtp_password)
+        print("OK: briefing sent.")
+    except QuotaExceededError as e:
+        # Graceful operational fallback: notify recipients but do not fail the workflow.
+        alert_subject = f"{subject_prefix} — quota alert — {today_iso_utc()}"
+        alert_html = build_quota_alert_html(subject_prefix, summarize_error(e))
+        send_email(alert_subject, alert_html, smtp_user, recipients, smtp_password)
+        print("OK: quota alert sent to recipients.")
+
 
 
 if __name__ == "__main__":
