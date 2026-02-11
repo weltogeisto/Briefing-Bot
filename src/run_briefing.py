@@ -164,6 +164,11 @@ CRITICAL RULES (MUST FOLLOW):
 
 OUTPUT FORMAT (Markdown - follow this structure EXACTLY):
 
+COMPACT OUTPUT RULES:
+- If fewer than 3 high-confidence developments are available for a section, provide 2 verified signals instead of forcing 3.
+- Limit bullets per subsection to a maximum of 3.
+- Use concise phrasing and single-sentence bullets where possible.
+
 ---
 
 ⚡ TODAY'S TOP PRIORITY
@@ -277,6 +282,9 @@ def build_prompt(cfg: dict, brevity: Dict[str, Any]) -> str:
     """
     today = today_iso_utc()
     lookback = int(cfg.get("lookback_hours", 72))
+    briefing_mode = (cfg.get("briefing_mode", "standard") or "standard").strip().lower()
+    if briefing_mode not in {"standard", "compact"}:
+        briefing_mode = "standard"
 
     territory = ", ".join(cfg.get("territory", [])) or "[Territory]"
     prepared_for = cfg.get("prepared_for", "[Your Name]")
@@ -335,6 +343,7 @@ def build_prompt(cfg: dict, brevity: Dict[str, Any]) -> str:
 **Date:** {today}
 **Prepared for:** {prepared_for}
 **Territory:** {territory}
+**Briefing mode:** {briefing_mode}
 
 SEARCH GOOGLE NOW for current developments from the last {lookback} hours.
 
@@ -360,8 +369,9 @@ INSTRUCTIONS:
 4. Create actionable Gartner Plays and Advisory Openings for each signal
 5. Generate the briefing following the EXACT format from your system instructions
 6. Include real source domains in the footer (e.g., BMDS.bund.de, Bundestag.de, eGovernment.de)
-7. Brevity budget (strict): target total {target_min}-{target_max} words, hard cap {max_words} words.
-8. Per-section caps: Top Priority <= {top_priority_limit} words; each signal <= {signal_limit} words; Regulatory Countdown <= {regulatory_limit} words.
+7. Apply briefing_mode behavior:
+   - compact: prioritize high-signal items, keep wording concise, and follow compact output rules.
+   - standard: provide fuller context while still following compact output constraints when evidence is limited.
 
 START THE OUTPUT WITH:
 🇩🇪 {brand_title}

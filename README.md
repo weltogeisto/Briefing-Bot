@@ -39,9 +39,15 @@ Edit: `src/config.json`
 
 - `prepared_for`: your name
 - `territory`: list of regions / orgs
+- `briefing_mode`: `compact` (default) for tight, signal-first daily updates, or `standard` when you want more narrative context
 - `accounts`: target accounts with seed “active projects to watch”
 - `themes`: your 3–5 strategic themes
 - `regulatory_items`: optional list of key regs/dates to always track
+
+### Choosing a briefing mode
+
+- `compact` (recommended for daily runs): Keeps the briefing short, allows 2 verified signals when fewer than 3 high-confidence developments exist, and limits subsection bullet density.
+- `standard`: Better for stakeholder readouts where extra background is useful. It still remains evidence-based, but allows richer explanatory context.
 
 ---
 
