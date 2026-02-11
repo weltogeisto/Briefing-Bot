@@ -13,6 +13,7 @@ import json
 import datetime as dt
 import smtplib
 import ssl
+import re
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from typing import List, Dict, Any, Optional
@@ -69,6 +70,37 @@ def dedup_keep_order(items: List[str]) -> List[str]:
             seen.add(x)
             out.append(x)
     return out
+
+
+def estimate_word_count(text: str) -> int:
+    """
+    Estimates word count from model text for output-size guardrails.
+    """
+    return len(re.findall(r"\S+", text or ""))
+
+
+def extract_markdown_links(markdown_text: str) -> List[str]:
+    links = re.findall(r"\[[^\]]+\]\((https?://[^)\s]+)\)", markdown_text or "")
+    return dedup_keep_order(links)
+
+
+def build_compression_prompt(markdown_text: str, max_words: int) -> str:
+    return f"""You are compressing a markdown briefing to satisfy a strict maximum length.
+
+Compression requirements:
+1. Preserve ALL section headers and overall section order.
+2. Preserve factual claims (entities, dates, numbers, deadlines, commitments).
+3. Remove repetition, verbose phrasing, and non-essential filler.
+4. Keep markdown citations/links intact where they exist.
+5. If any citation cannot be kept inline, include it in a final 'Sources' list.
+6. Output must remain valid markdown.
+7. Final output must be <= {max_words} words.
+
+Return only the compressed markdown.
+
+--- BEGIN BRIEFING ---
+{markdown_text}
+--- END BRIEFING ---"""
 
 
 def is_obviously_retired_model(model_id: str) -> bool:
@@ -134,12 +166,22 @@ def pick_spotlight_entities(cfg: dict, universe: dict, iso_date: str) -> List[st
 # System Instruction & Prompt
 # -----------------------------
 
-def build_system_instruction() -> str:
+def build_system_instruction(brevity: Dict[str, Any]) -> str:
     """
     System instruction that enforces grounding, format rules, and output structure.
     This is processed with higher priority than the user prompt.
     """
-    return """You are a German public sector business intelligence analyst creating a daily briefing for business development purposes.
+    target_words = brevity.get("target_words", [900, 1200])
+    if not isinstance(target_words, list) or len(target_words) != 2:
+        target_words = [900, 1200]
+    target_min, target_max = int(target_words[0]), int(target_words[1])
+    max_words = int(brevity.get("max_words", 1300))
+    section_limits = brevity.get("section_word_limits", {}) or {}
+    top_priority_limit = int(section_limits.get("top_priority", 80))
+    signal_limit = int(section_limits.get("signal", 120))
+    regulatory_limit = int(section_limits.get("regulatory_countdown", 220))
+
+    return f"""You are a German public sector business intelligence analyst creating a daily briefing for business development purposes.
 
 CRITICAL RULES (MUST FOLLOW):
 1. USE GOOGLE SEARCH for EVERY factual claim. You have access to Google Search - USE IT for every piece of information.
@@ -149,6 +191,8 @@ CRITICAL RULES (MUST FOLLOW):
 5. Focus on information from the LAST 72 HOURS. Older information should be clearly marked with its date.
 6. DO NOT paste raw URLs in the text - citations are handled automatically via grounding metadata.
 7. Keep personal data minimal: job titles/roles are OK, but no private emails or phone numbers.
+8. Brevity is mandatory: target {target_min}-{target_max} words total, never exceed {max_words} words.
+9. Enforce section limits: Top Priority <= {top_priority_limit} words; each Hard Signal block (including table text) <= {signal_limit} words; Regulatory Countdown section <= {regulatory_limit} words.
 
 ITEM SCORING RUBRIC (APPLY BEFORE INCLUDING ANY CANDIDATE ITEM):
 - Score each candidate item on a 0-5 scale for:
@@ -160,6 +204,11 @@ ITEM SCORING RUBRIC (APPLY BEFORE INCLUDING ANY CANDIDATE ITEM):
 - If an item scores below threshold, DROP it (do not summarize it in the output).
 
 OUTPUT FORMAT (Markdown - follow this structure EXACTLY):
+
+COMPACT OUTPUT RULES:
+- If fewer than 3 high-confidence developments are available for a section, provide 2 verified signals instead of forcing 3.
+- Limit bullets per subsection to a maximum of 3.
+- Use concise phrasing and single-sentence bullets where possible.
 
 ---
 
@@ -270,12 +319,15 @@ OUTPUT FORMAT (Markdown - follow this structure EXACTLY):
 **For Gartner internal BD use only. Do not distribute externally.**"""
 
 
-def build_prompt(cfg: dict) -> str:
+def build_prompt(cfg: dict, brevity: Dict[str, Any]) -> str:
     """
     User prompt with the specific briefing parameters for today.
     """
     today = today_iso_utc()
     lookback = int(cfg.get("lookback_hours", 72))
+    briefing_mode = (cfg.get("briefing_mode", "standard") or "standard").strip().lower()
+    if briefing_mode not in {"standard", "compact"}:
+        briefing_mode = "standard"
 
     territory = ", ".join(cfg.get("territory", [])) or "[Territory]"
     prepared_for = cfg.get("prepared_for", "[Your Name]")
@@ -286,6 +338,16 @@ def build_prompt(cfg: dict) -> str:
 
     brand_title = (cfg.get("brand") or {}).get("title", "GARTNER PUBLIC SECTOR DAILY")
     brand_subtitle = (cfg.get("brand") or {}).get("subtitle", "New Business Intelligence Briefing")
+
+    target_words = brevity.get("target_words", [900, 1200])
+    if not isinstance(target_words, list) or len(target_words) != 2:
+        target_words = [900, 1200]
+    target_min, target_max = int(target_words[0]), int(target_words[1])
+    max_words = int(brevity.get("max_words", 1300))
+    section_limits = brevity.get("section_word_limits", {}) or {}
+    top_priority_limit = int(section_limits.get("top_priority", 80))
+    signal_limit = int(section_limits.get("signal", 120))
+    regulatory_limit = int(section_limits.get("regulatory_countdown", 220))
 
     # Build account details
     acct_lines: List[str] = []
@@ -324,6 +386,7 @@ def build_prompt(cfg: dict) -> str:
 **Date:** {today}
 **Prepared for:** {prepared_for}
 **Territory:** {territory}
+**Briefing mode:** {briefing_mode}
 
 SEARCH GOOGLE NOW for current developments from the last {lookback} hours.
 
@@ -349,6 +412,9 @@ INSTRUCTIONS:
 4. Create actionable Gartner Plays and Advisory Openings for each signal
 5. Generate the briefing following the EXACT format from your system instructions
 6. Include real source domains in the footer (e.g., BMDS.bund.de, Bundestag.de, eGovernment.de)
+7. Apply briefing_mode behavior:
+   - compact: prioritize high-signal items, keep wording concise, and follow compact output rules.
+   - standard: provide fuller context while still following compact output constraints when evidence is limited.
 
 START THE OUTPUT WITH:
 🇩🇪 {brand_title}
@@ -409,6 +475,18 @@ def markdown_to_html(markdown_text: str) -> str:
   </body>
 </html>
 """
+
+
+def ensure_citations_present(markdown_text: str, fallback_citations: List[str]) -> str:
+    if not fallback_citations:
+        return markdown_text
+
+    has_inline_links = bool(re.search(r"\[[^\]]+\]\((https?://[^)\s]+)\)", markdown_text or ""))
+    if has_inline_links:
+        return markdown_text
+
+    source_lines = "\n".join(f"- {u}" for u in fallback_citations)
+    return f"{markdown_text.rstrip()}\n\n## Sources\n{source_lines}\n"
 
 
 # -----------------------------
@@ -560,7 +638,10 @@ def main() -> None:
     if not recipients:
         raise RuntimeError("RECIPIENT_EMAIL did not contain any valid addresses.")
 
-    prompt = build_prompt(cfg)
+    model_cfg = cfg.get("model") or {}
+    brevity = model_cfg.get("brevity", {}) or {}
+
+    prompt = build_prompt(cfg, brevity)
 
     # Create client with explicit API key (google-genai SDK looks for GOOGLE_API_KEY by default)
     api_key = require_env("GEMINI_API_KEY")
@@ -574,6 +655,7 @@ def main() -> None:
     grounding_tool = types.Tool(google_search=types.GoogleSearch())
     base_max_tokens = int((cfg.get("model") or {}).get("max_output_tokens", 3800))
     base_temperature = float((cfg.get("model") or {}).get("temperature", 0.2))
+    max_words = int((cfg.get("model") or {}).get("max_words", 2200))
 
     # Tiered models: config first, then stable low-cost fallbacks.
     cfg_models_raw = (cfg.get("model") or {}).get("preferred_models", []) or []
@@ -599,12 +681,20 @@ def main() -> None:
         max_output_tokens=base_max_tokens,
     )
 
+    reduced_max_tokens = max(1200, int(base_max_tokens * 0.65))
     reduced_cfg = types.GenerateContentConfig(
         system_instruction=system_instruction,
         tools=[grounding_tool],
         temperature=base_temperature,
         top_p=0.95,
-        max_output_tokens=min(2200, base_max_tokens),
+        max_output_tokens=min(reduced_max_tokens, base_max_tokens),
+    )
+
+    compression_cfg = types.GenerateContentConfig(
+        system_instruction="You are an expert editor. Follow compression instructions exactly.",
+        temperature=0.0,
+        top_p=0.9,
+        max_output_tokens=base_max_tokens,
     )
 
     subject_prefix = (cfg.get("email") or {}).get("subject_prefix", "Public Sector Intelligence Briefing")
@@ -616,8 +706,30 @@ def main() -> None:
             print("WARN: Quota pressure detected, retrying with reduced token budget.")
             response = generate_with_fallback(client, model_ids, prompt, reduced_cfg)
 
+        initial_text = getattr(response, "text", "") or ""
+        before_words = estimate_word_count(initial_text)
+        print(f"INFO: Initial briefing word count={before_words} (max_words={max_words})")
+
         md_with_cites = add_citations_markdown(response)
-        html = markdown_to_html(md_with_cites)
+        final_markdown = md_with_cites
+
+        if before_words > max_words:
+            print("WARN: Briefing exceeds max_words; requesting strict compression pass.")
+            fallback_links = extract_markdown_links(md_with_cites)
+            compression_prompt = build_compression_prompt(md_with_cites, max_words)
+            compressed_response = generate_with_fallback(client, model_ids, compression_prompt, compression_cfg)
+            compressed_text = getattr(compressed_response, "text", "") or ""
+            compressed_text = ensure_citations_present(compressed_text, fallback_links)
+            after_words = estimate_word_count(compressed_text)
+            print(f"INFO: Compressed briefing word count={after_words} (max_words={max_words})")
+            final_markdown = compressed_text
+
+            if after_words > max_words:
+                raise RuntimeError(
+                    f"Compressed briefing still exceeds max_words (before={before_words}, after={after_words}, max={max_words}). Email suppressed."
+                )
+
+        html = markdown_to_html(final_markdown)
 
         subject = f"{subject_prefix} — {today_iso_utc()}"
         send_email(subject, html, smtp_user, recipients, smtp_password)
