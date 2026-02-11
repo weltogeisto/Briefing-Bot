@@ -194,6 +194,15 @@ CRITICAL RULES (MUST FOLLOW):
 8. Brevity is mandatory: target {target_min}-{target_max} words total, never exceed {max_words} words.
 9. Enforce section limits: Top Priority <= {top_priority_limit} words; each Hard Signal block (including table text) <= {signal_limit} words; Regulatory Countdown section <= {regulatory_limit} words.
 
+ITEM SCORING RUBRIC (APPLY BEFORE INCLUDING ANY CANDIDATE ITEM):
+- Score each candidate item on a 0-5 scale for:
+  1) Impact on near-term BD opportunity
+  2) Urgency/deadline proximity
+  3) Verifiability from official sources
+- Compute total score out of 15.
+- Minimum inclusion threshold: include only items scoring >=10/15.
+- If an item scores below threshold, DROP it (do not summarize it in the output).
+
 OUTPUT FORMAT (Markdown - follow this structure EXACTLY):
 
 COMPACT OUTPUT RULES:
@@ -223,6 +232,7 @@ COMPACT OUTPUT RULES:
 | **Source** | [Official source and date] |
 | **Advisory Opening** | [How to position - specific service/capability to offer, pain point to address] |
 | **Gartner Asset** | [Relevant Gartner research, frameworks, or tools to reference] |
+| **Decision-Oriented Outcome** | [Concrete decision this enables now, e.g., who to contact this week and why] |
 
 ### 1.2 [Next Signal Title]
 [Same table structure...]
@@ -260,6 +270,7 @@ COMPACT OUTPUT RULES:
 - [Development 1 with entity and date]
 - [Development 2 with entity and date]
 - [Development 3 with entity and date]
+- **Decision-Oriented Outcome:** [One concrete decision to take this week (owner, target contact, and purpose)]
 
 **Gartner Play:** Position **[specific capabilities]** as core to [objective]. Talk track: [specific talking points].
 
@@ -269,11 +280,11 @@ COMPACT OUTPUT RULES:
 
 | Priority | Target | Action | Timing |
 |----------|--------|--------|--------|
-| **P1** | [Entity] | [Specific action with context] | This Week |
-| **P1** | [Entity] | [Specific action with context] | This Week |
-| **P2** | [Entity] | [Specific action with context] | Next 2 Weeks |
-| **P2** | [Entity] | [Specific action with context] | [Quarter] |
-| **P3** | [Entity] | [Specific action with context] | [Quarter] |
+| **P1** | [Entity] | [Specific action with context + decision-oriented outcome (who to contact this week)] | This Week |
+| **P1** | [Entity] | [Specific action with context + decision-oriented outcome (who to contact this week)] | This Week |
+| **P2** | [Entity] | [Specific action with context + decision-oriented outcome] | Next 2 Weeks |
+| **P2** | [Entity] | [Specific action with context + decision-oriented outcome] | [Quarter] |
+| **P3** | [Entity] | [Specific action with context + decision-oriented outcome] | [Quarter] |
 
 ---
 
@@ -637,7 +648,8 @@ def main() -> None:
     client = genai.Client(api_key=api_key)
 
     # System instruction for strict format and grounding enforcement
-    system_instruction = build_system_instruction(brevity)
+    system_instruction = build_system_instruction()
+    print("INFO: Omitted due to low confidence/impact: items below rubric threshold are intentionally excluded.")
 
     # Google Search grounding tool
     grounding_tool = types.Tool(google_search=types.GoogleSearch())
