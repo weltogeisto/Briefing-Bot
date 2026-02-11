@@ -134,12 +134,22 @@ def pick_spotlight_entities(cfg: dict, universe: dict, iso_date: str) -> List[st
 # System Instruction & Prompt
 # -----------------------------
 
-def build_system_instruction() -> str:
+def build_system_instruction(brevity: Dict[str, Any]) -> str:
     """
     System instruction that enforces grounding, format rules, and output structure.
     This is processed with higher priority than the user prompt.
     """
-    return """You are a German public sector business intelligence analyst creating a daily briefing for business development purposes.
+    target_words = brevity.get("target_words", [900, 1200])
+    if not isinstance(target_words, list) or len(target_words) != 2:
+        target_words = [900, 1200]
+    target_min, target_max = int(target_words[0]), int(target_words[1])
+    max_words = int(brevity.get("max_words", 1300))
+    section_limits = brevity.get("section_word_limits", {}) or {}
+    top_priority_limit = int(section_limits.get("top_priority", 80))
+    signal_limit = int(section_limits.get("signal", 120))
+    regulatory_limit = int(section_limits.get("regulatory_countdown", 220))
+
+    return f"""You are a German public sector business intelligence analyst creating a daily briefing for business development purposes.
 
 CRITICAL RULES (MUST FOLLOW):
 1. USE GOOGLE SEARCH for EVERY factual claim. You have access to Google Search - USE IT for every piece of information.
@@ -149,6 +159,8 @@ CRITICAL RULES (MUST FOLLOW):
 5. Focus on information from the LAST 72 HOURS. Older information should be clearly marked with its date.
 6. DO NOT paste raw URLs in the text - citations are handled automatically via grounding metadata.
 7. Keep personal data minimal: job titles/roles are OK, but no private emails or phone numbers.
+8. Brevity is mandatory: target {target_min}-{target_max} words total, never exceed {max_words} words.
+9. Enforce section limits: Top Priority <= {top_priority_limit} words; each Hard Signal block (including table text) <= {signal_limit} words; Regulatory Countdown section <= {regulatory_limit} words.
 
 OUTPUT FORMAT (Markdown - follow this structure EXACTLY):
 
@@ -259,7 +271,7 @@ OUTPUT FORMAT (Markdown - follow this structure EXACTLY):
 **For Gartner internal BD use only. Do not distribute externally.**"""
 
 
-def build_prompt(cfg: dict) -> str:
+def build_prompt(cfg: dict, brevity: Dict[str, Any]) -> str:
     """
     User prompt with the specific briefing parameters for today.
     """
@@ -275,6 +287,16 @@ def build_prompt(cfg: dict) -> str:
 
     brand_title = (cfg.get("brand") or {}).get("title", "GARTNER PUBLIC SECTOR DAILY")
     brand_subtitle = (cfg.get("brand") or {}).get("subtitle", "New Business Intelligence Briefing")
+
+    target_words = brevity.get("target_words", [900, 1200])
+    if not isinstance(target_words, list) or len(target_words) != 2:
+        target_words = [900, 1200]
+    target_min, target_max = int(target_words[0]), int(target_words[1])
+    max_words = int(brevity.get("max_words", 1300))
+    section_limits = brevity.get("section_word_limits", {}) or {}
+    top_priority_limit = int(section_limits.get("top_priority", 80))
+    signal_limit = int(section_limits.get("signal", 120))
+    regulatory_limit = int(section_limits.get("regulatory_countdown", 220))
 
     # Build account details
     acct_lines: List[str] = []
@@ -338,6 +360,8 @@ INSTRUCTIONS:
 4. Create actionable Gartner Plays and Advisory Openings for each signal
 5. Generate the briefing following the EXACT format from your system instructions
 6. Include real source domains in the footer (e.g., BMDS.bund.de, Bundestag.de, eGovernment.de)
+7. Brevity budget (strict): target total {target_min}-{target_max} words, hard cap {max_words} words.
+8. Per-section caps: Top Priority <= {top_priority_limit} words; each signal <= {signal_limit} words; Regulatory Countdown <= {regulatory_limit} words.
 
 START THE OUTPUT WITH:
 🇩🇪 {brand_title}
@@ -549,19 +573,22 @@ def main() -> None:
     if not recipients:
         raise RuntimeError("RECIPIENT_EMAIL did not contain any valid addresses.")
 
-    prompt = build_prompt(cfg)
+    model_cfg = cfg.get("model") or {}
+    brevity = model_cfg.get("brevity", {}) or {}
+
+    prompt = build_prompt(cfg, brevity)
 
     # Create client with explicit API key (google-genai SDK looks for GOOGLE_API_KEY by default)
     api_key = require_env("GEMINI_API_KEY")
     client = genai.Client(api_key=api_key)
 
     # System instruction for strict format and grounding enforcement
-    system_instruction = build_system_instruction()
+    system_instruction = build_system_instruction(brevity)
 
     # Google Search grounding tool
     grounding_tool = types.Tool(google_search=types.GoogleSearch())
-    base_max_tokens = int((cfg.get("model") or {}).get("max_output_tokens", 3800))
-    base_temperature = float((cfg.get("model") or {}).get("temperature", 0.2))
+    base_max_tokens = int(model_cfg.get("max_output_tokens", 3000))
+    base_temperature = float(model_cfg.get("temperature", 0.2))
 
     # Tiered models: config first, then stable low-cost fallbacks.
     cfg_models_raw = (cfg.get("model") or {}).get("preferred_models", []) or []
@@ -587,12 +614,13 @@ def main() -> None:
         max_output_tokens=base_max_tokens,
     )
 
+    reduced_max_tokens = max(1200, int(base_max_tokens * 0.65))
     reduced_cfg = types.GenerateContentConfig(
         system_instruction=system_instruction,
         tools=[grounding_tool],
         temperature=base_temperature,
         top_p=0.95,
-        max_output_tokens=min(2200, base_max_tokens),
+        max_output_tokens=min(reduced_max_tokens, base_max_tokens),
     )
 
     subject_prefix = (cfg.get("email") or {}).get("subject_prefix", "Public Sector Intelligence Briefing")
