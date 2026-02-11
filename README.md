@@ -51,6 +51,15 @@ If the model returns no grounding metadata on a run, the email will include a no
 
 ---
 
+
+## Operational behavior (quota / billing)
+If Gemini API quota or rate limits are exhausted, the workflow now sends a short **quota alert email** instead of failing silently.
+
+What to check if this happens repeatedly:
+- Enable billing for your Google AI Studio project.
+- Increase Gemini API limits (RPM/TPM).
+- Reduce `model.max_output_tokens` in `src/config.json`.
+
 ## Included reference
 Your original DOCX template is included in `assets/` for reference.
 
