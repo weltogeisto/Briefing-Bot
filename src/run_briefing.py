@@ -13,6 +13,7 @@ import json
 import datetime as dt
 import smtplib
 import ssl
+import re
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from typing import List, Dict, Any, Optional
@@ -69,6 +70,37 @@ def dedup_keep_order(items: List[str]) -> List[str]:
             seen.add(x)
             out.append(x)
     return out
+
+
+def estimate_word_count(text: str) -> int:
+    """
+    Estimates word count from model text for output-size guardrails.
+    """
+    return len(re.findall(r"\S+", text or ""))
+
+
+def extract_markdown_links(markdown_text: str) -> List[str]:
+    links = re.findall(r"\[[^\]]+\]\((https?://[^)\s]+)\)", markdown_text or "")
+    return dedup_keep_order(links)
+
+
+def build_compression_prompt(markdown_text: str, max_words: int) -> str:
+    return f"""You are compressing a markdown briefing to satisfy a strict maximum length.
+
+Compression requirements:
+1. Preserve ALL section headers and overall section order.
+2. Preserve factual claims (entities, dates, numbers, deadlines, commitments).
+3. Remove repetition, verbose phrasing, and non-essential filler.
+4. Keep markdown citations/links intact where they exist.
+5. If any citation cannot be kept inline, include it in a final 'Sources' list.
+6. Output must remain valid markdown.
+7. Final output must be <= {max_words} words.
+
+Return only the compressed markdown.
+
+--- BEGIN BRIEFING ---
+{markdown_text}
+--- END BRIEFING ---"""
 
 
 def is_obviously_retired_model(model_id: str) -> bool:
@@ -400,6 +432,18 @@ def markdown_to_html(markdown_text: str) -> str:
 """
 
 
+def ensure_citations_present(markdown_text: str, fallback_citations: List[str]) -> str:
+    if not fallback_citations:
+        return markdown_text
+
+    has_inline_links = bool(re.search(r"\[[^\]]+\]\((https?://[^)\s]+)\)", markdown_text or ""))
+    if has_inline_links:
+        return markdown_text
+
+    source_lines = "\n".join(f"- {u}" for u in fallback_citations)
+    return f"{markdown_text.rstrip()}\n\n## Sources\n{source_lines}\n"
+
+
 # -----------------------------
 # Email
 # -----------------------------
@@ -562,6 +606,7 @@ def main() -> None:
     grounding_tool = types.Tool(google_search=types.GoogleSearch())
     base_max_tokens = int((cfg.get("model") or {}).get("max_output_tokens", 3800))
     base_temperature = float((cfg.get("model") or {}).get("temperature", 0.2))
+    max_words = int((cfg.get("model") or {}).get("max_words", 2200))
 
     # Tiered models: config first, then stable low-cost fallbacks.
     cfg_models_raw = (cfg.get("model") or {}).get("preferred_models", []) or []
@@ -595,6 +640,13 @@ def main() -> None:
         max_output_tokens=min(2200, base_max_tokens),
     )
 
+    compression_cfg = types.GenerateContentConfig(
+        system_instruction="You are an expert editor. Follow compression instructions exactly.",
+        temperature=0.0,
+        top_p=0.9,
+        max_output_tokens=base_max_tokens,
+    )
+
     subject_prefix = (cfg.get("email") or {}).get("subject_prefix", "Public Sector Intelligence Briefing")
 
     try:
@@ -604,8 +656,30 @@ def main() -> None:
             print("WARN: Quota pressure detected, retrying with reduced token budget.")
             response = generate_with_fallback(client, model_ids, prompt, reduced_cfg)
 
+        initial_text = getattr(response, "text", "") or ""
+        before_words = estimate_word_count(initial_text)
+        print(f"INFO: Initial briefing word count={before_words} (max_words={max_words})")
+
         md_with_cites = add_citations_markdown(response)
-        html = markdown_to_html(md_with_cites)
+        final_markdown = md_with_cites
+
+        if before_words > max_words:
+            print("WARN: Briefing exceeds max_words; requesting strict compression pass.")
+            fallback_links = extract_markdown_links(md_with_cites)
+            compression_prompt = build_compression_prompt(md_with_cites, max_words)
+            compressed_response = generate_with_fallback(client, model_ids, compression_prompt, compression_cfg)
+            compressed_text = getattr(compressed_response, "text", "") or ""
+            compressed_text = ensure_citations_present(compressed_text, fallback_links)
+            after_words = estimate_word_count(compressed_text)
+            print(f"INFO: Compressed briefing word count={after_words} (max_words={max_words})")
+            final_markdown = compressed_text
+
+            if after_words > max_words:
+                raise RuntimeError(
+                    f"Compressed briefing still exceeds max_words (before={before_words}, after={after_words}, max={max_words}). Email suppressed."
+                )
+
+        html = markdown_to_html(final_markdown)
 
         subject = f"{subject_prefix} — {today_iso_utc()}"
         send_email(subject, html, smtp_user, recipients, smtp_password)
