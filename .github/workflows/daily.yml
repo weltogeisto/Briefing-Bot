@@ -9,6 +9,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: briefing-bot
+  cancel-in-progress: true
+
 jobs:
   send:
     runs-on: ubuntu-latest
@@ -32,5 +36,6 @@ jobs:
           RECIPIENT_EMAIL: ${{ secrets.RECIPIENT_EMAIL }}
           SMTP_USER: ${{ secrets.SMTP_USER }}
           SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
+          SKIP_PREFLIGHT: "1"
         run: |
           python src/run_briefing.py

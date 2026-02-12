@@ -130,8 +130,7 @@
   },
   "model": {
     "preferred_models": [
-      "gemini-2.0-flash",
-      "gemini-2.5-flash-preview-05-20"
+      "gemini-2.5-flash"
     ],
     "max_output_tokens": 3000,
     "temperature": 0.3,
