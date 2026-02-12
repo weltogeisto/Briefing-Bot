@@ -11,6 +11,12 @@ This repo sends you a **daily email** that matches the structure of your **Publi
 
 It uses the **Gemini API** with **Google Search grounding** to generate **cited** insights, then emails the briefing via **Gmail SMTP**.
 
+Reliability features in the current implementation:
+- preflight model check before the full run
+- automatic model fallback across a preferred + low-cost model list
+- automatic retry with a reduced token budget when quota pressure is detected
+- quota/rate-limit alert email fallback so runs do not fail silently
+
 ---
 
 ## 1) Add GitHub Actions secrets
@@ -40,9 +46,24 @@ Edit: `src/config.json`
 - `prepared_for`: your name
 - `territory`: list of regions / orgs
 - `briefing_mode`: `compact` (default) for tight, signal-first daily updates, or `standard` when you want more narrative context
+- `lookback_hours`: recency window used in prompt instructions (default `72`)
 - `accounts`: target accounts with seed “active projects to watch”
 - `themes`: your 3–5 strategic themes
 - `regulatory_items`: optional list of key regs/dates to always track
+- `email.subject_prefix`: subject prefix for both briefing and operational fallback emails
+
+### Model + output control
+
+Edit the `model` section in `src/config.json`:
+
+- `preferred_models`: your preferred model IDs (retired 1.0/1.5 IDs are automatically ignored)
+- `max_output_tokens`: generation token budget for the main pass
+- `temperature`: model creativity level
+- `brevity.target_words`: target range used in instructions
+- `brevity.max_words`: hard target used in instructions for concise output
+- `brevity.section_word_limits`: per-section word ceilings injected into the system instruction
+
+If output still runs long, the script performs a compression pass that preserves section order and citations.
 
 ### Choosing a briefing mode
 
@@ -59,12 +80,19 @@ If the model returns no grounding metadata on a run, the email will include a no
 
 
 ## Operational behavior (quota / billing)
-If Gemini API quota or rate limits are exhausted, the workflow now sends a short **quota alert email** instead of failing silently.
+If Gemini API quota or rate limits are exhausted, the workflow sends a short **quota alert email** instead of failing silently.
+
+Operational sequence:
+1. preflight check on the first configured model
+2. generation with model fallback list
+3. retry with reduced token budget if quota pressure appears
+4. fallback alert email if generation remains blocked
 
 What to check if this happens repeatedly:
 - Enable billing for your Google AI Studio project.
 - Increase Gemini API limits (RPM/TPM).
 - Reduce `model.max_output_tokens` in `src/config.json`.
+- Optionally tighten `model.brevity.target_words` and `model.brevity.section_word_limits`.
 
 ## Included reference
 Your original DOCX template is included in `assets/` for reference.
