@@ -670,9 +670,6 @@ def main() -> None:
     if not model_ids:
         raise RuntimeError("No non-retired model IDs are configured.")
 
-    # Preflight to classify common operational failures early.
-    run_preflight_check(client, model_ids)
-
     primary_cfg = types.GenerateContentConfig(
         system_instruction=system_instruction,
         tools=[grounding_tool],
@@ -700,6 +697,9 @@ def main() -> None:
     subject_prefix = (cfg.get("email") or {}).get("subject_prefix", "Public Sector Intelligence Briefing")
 
     try:
+        # Preflight to classify common operational failures early.
+        run_preflight_check(client, model_ids)
+
         try:
             response = generate_with_fallback(client, model_ids, prompt, primary_cfg)
         except QuotaExceededError:
