@@ -648,7 +648,7 @@ def main() -> None:
     client = genai.Client(api_key=api_key)
 
     # System instruction for strict format and grounding enforcement
-    system_instruction = build_system_instruction()
+    system_instruction = build_system_instruction(brevity)
     print("INFO: Omitted due to low confidence/impact: items below rubric threshold are intentionally excluded.")
 
     # Google Search grounding tool
