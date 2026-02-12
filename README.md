@@ -12,10 +12,11 @@ This repo sends you a **daily email** that matches the structure of your **Publi
 It uses the **Gemini API** with **Google Search grounding** to generate **cited** insights, then emails the briefing via **Gmail SMTP**.
 
 Reliability features in the current implementation:
-- preflight model check before the full run
-- automatic model fallback across a preferred + low-cost model list
+- optional preflight model check (can be skipped to save one API call)
+- single-model execution based on your configured `preferred_models` list
 - automatic retry with a reduced token budget when quota pressure is detected
 - quota/rate-limit alert email fallback so runs do not fail silently
+- configurable throttling between Gemini requests (`GEMINI_MIN_INTERVAL_SEC`)
 
 ---
 
@@ -56,7 +57,7 @@ Edit: `src/config.json`
 
 Edit the `model` section in `src/config.json`:
 
-- `preferred_models`: your preferred model IDs (retired 1.0/1.5 IDs are automatically ignored)
+- `preferred_models`: your preferred model IDs in execution order (recommended: only `gemini-2.5-flash`; retired 1.0/1.5 IDs are automatically ignored)
 - `max_output_tokens`: generation token budget for the main pass
 - `temperature`: model creativity level
 - `brevity.target_words`: target range used in instructions
@@ -83,8 +84,8 @@ If the model returns no grounding metadata on a run, the email will include a no
 If Gemini API quota or rate limits are exhausted, the workflow sends a short **quota alert email** instead of failing silently.
 
 Operational sequence:
-1. preflight check on the first configured model
-2. generation with model fallback list
+1. optional preflight check on the first configured model (`SKIP_PREFLIGHT=1` disables it)
+2. generation with the configured model list (recommended single model: `gemini-2.5-flash`)
 3. retry with reduced token budget if quota pressure appears
 4. fallback alert email if generation remains blocked
 

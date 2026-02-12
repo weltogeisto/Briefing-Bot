@@ -14,6 +14,7 @@ import datetime as dt
 import smtplib
 import ssl
 import re
+import time
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from typing import List, Dict, Any, Optional
@@ -546,6 +547,13 @@ def list_available_models(client: genai.Client, limit: int = 40) -> List[str]:
     return out
 
 
+def throttle_gemini_calls() -> None:
+    min_interval_sec = float(os.getenv("GEMINI_MIN_INTERVAL_SEC", "12"))
+    if min_interval_sec > 0:
+        print(f"INFO: Throttling Gemini call for {min_interval_sec:.1f}s")
+        time.sleep(min_interval_sec)
+
+
 def run_preflight_check(client: genai.Client, model_ids: List[str]) -> None:
     """
     Send one tiny request so we can fail fast with a clear reason in logs.
@@ -559,6 +567,7 @@ def run_preflight_check(client: genai.Client, model_ids: List[str]) -> None:
         max_output_tokens=20,
     )
     try:
+        throttle_gemini_calls()
         client.models.generate_content(model=model, contents="Respond exactly with: OK", config=cfg)
         print(f"INFO: Preflight check succeeded with model '{model}'.")
     except Exception as e:
@@ -583,6 +592,7 @@ def generate_with_fallback(
         try:
             tried.append(mid)
             print(f"INFO: Trying model='{mid}' max_output_tokens={gen_cfg.max_output_tokens}")
+            throttle_gemini_calls()
             return client.models.generate_content(model=mid, contents=prompt, config=gen_cfg)
         except Exception as e:
             last_err = e
@@ -657,16 +667,10 @@ def main() -> None:
     base_temperature = float((cfg.get("model") or {}).get("temperature", 0.2))
     max_words = int((cfg.get("model") or {}).get("max_words", 2200))
 
-    # Tiered models: config first, then stable low-cost fallbacks.
+    # Use only explicitly configured models.
     cfg_models_raw = (cfg.get("model") or {}).get("preferred_models", []) or []
     cfg_models = sanitize_config_models(cfg_models_raw)
-    low_cost_fallback_models = [
-        "gemini-2.5-flash-lite",
-        "gemini-2.0-flash-lite",
-        "gemini-2.0-flash",
-        "gemini-flash-latest",
-    ]
-    model_ids = dedup_keep_order(cfg_models + low_cost_fallback_models)
+    model_ids = dedup_keep_order(cfg_models)
     if not model_ids:
         raise RuntimeError("No non-retired model IDs are configured.")
 
@@ -695,10 +699,14 @@ def main() -> None:
     )
 
     subject_prefix = (cfg.get("email") or {}).get("subject_prefix", "Public Sector Intelligence Briefing")
+    skip_preflight = os.getenv("SKIP_PREFLIGHT", "").strip().lower() in {"1", "true", "yes"}
 
     try:
-        # Preflight to classify common operational failures early.
-        run_preflight_check(client, model_ids)
+        if skip_preflight:
+            print("INFO: SKIP_PREFLIGHT is enabled; skipping preflight Gemini call.")
+        else:
+            # Preflight to classify common operational failures early.
+            run_preflight_check(client, model_ids)
 
         try:
             response = generate_with_fallback(client, model_ids, prompt, primary_cfg)
