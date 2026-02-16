@@ -15,9 +15,10 @@ import smtplib
 import ssl
 import re
 import time
+from urllib.parse import urlparse
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Set
 
 from google import genai
 from google.genai import types
@@ -83,6 +84,49 @@ def estimate_word_count(text: str) -> int:
 def extract_markdown_links(markdown_text: str) -> List[str]:
     links = re.findall(r"\[[^\]]+\]\((https?://[^)\s]+)\)", markdown_text or "")
     return dedup_keep_order(links)
+
+
+def extract_link_quality(markdown_text: str) -> Dict[str, Any]:
+    unique_urls = set(extract_markdown_links(markdown_text))
+    domains: Set[str] = set()
+    for u in unique_urls:
+        parsed = urlparse(u)
+        host = (parsed.netloc or "").lower()
+        if host.startswith("www."):
+            host = host[4:]
+        if host:
+            domains.add(host)
+    return {
+        "unique_urls": unique_urls,
+        "unique_url_count": len(unique_urls),
+        "unique_domains": domains,
+        "unique_domain_count": len(domains),
+    }
+
+
+def get_citation_thresholds(cfg: dict) -> Dict[str, int]:
+    mode = ((cfg or {}).get("briefing_mode", "standard") or "standard").strip().lower()
+    quality_cfg = ((cfg or {}).get("model") or {}).get("citation_quality", {}) or {}
+    mode_cfg = quality_cfg.get(mode, {}) or {}
+    if mode == "compact":
+        min_links = int(mode_cfg.get("min_links", 5))
+        min_domains = int(mode_cfg.get("min_domains", 3))
+    else:
+        min_links = int(mode_cfg.get("min_links", 6))
+        min_domains = int(mode_cfg.get("min_domains", 3))
+    return {"mode": mode, "min_links": min_links, "min_domains": min_domains}
+
+
+def meets_citation_threshold(markdown_text: str, thresholds: Dict[str, int]) -> Dict[str, Any]:
+    stats = extract_link_quality(markdown_text)
+    links_ok = stats["unique_url_count"] >= int(thresholds["min_links"])
+    domains_ok = stats["unique_domain_count"] >= int(thresholds["min_domains"])
+    stats["threshold_passed"] = links_ok and domains_ok
+    stats["links_ok"] = links_ok
+    stats["domains_ok"] = domains_ok
+    stats["min_links"] = int(thresholds["min_links"])
+    stats["min_domains"] = int(thresholds["min_domains"])
+    return stats
 
 
 def build_compression_prompt(markdown_text: str, max_words: int) -> str:
@@ -463,16 +507,19 @@ def add_citations_markdown(response) -> str:
     return text
 
 
-def markdown_to_html(markdown_text: str) -> str:
+def markdown_to_html(markdown_text: str, footer_note: Optional[str] = None) -> str:
     html = md.markdown(markdown_text, extensions=["extra", "sane_lists", "smarty"], output_format="html5")
+    footer_html = ""
+    if footer_note:
+        footer_html = f"""
+    <hr/>
+    <p style=\"font-size: 12px; color: #666;\">{footer_note}</p>
+"""
     return f"""\
 <html>
   <body style="font-family: Arial, Helvetica, sans-serif; line-height: 1.45;">
     {html}
-    <hr/>
-    <p style="font-size: 12px; color: #666;">
-      Generated with Gemini + Google Search grounding. If citations are missing, the model may not have returned grounding metadata for this run.
-    </p>
+    {footer_html}
   </body>
 </html>
 """
@@ -681,22 +728,19 @@ def build_quota_alert_html(subject_prefix: str, error_message: str) -> str:
 """
 
 
-def build_length_cap_alert_html(subject_prefix: str, diagnostics: Dict[str, Any]) -> str:
+def build_grounding_alert_html(subject_prefix: str, quality: Dict[str, Any]) -> str:
     now_utc = dt.datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC")
     return f"""<html>
   <body style="font-family: Arial, Helvetica, sans-serif; line-height: 1.45;">
-    <h2>{subject_prefix} — length cap alert</h2>
-    <p>The daily briefing run generated content above the configured word cap after all compression attempts.</p>
+    <h2>{subject_prefix} — insufficient grounding evidence</h2>
+    <p>The daily briefing run is blocked because citation-quality validation failed after a retry.</p>
     <ul>
       <li><strong>Time:</strong> {now_utc}</li>
-      <li><strong>Configured cap:</strong> {diagnostics.get('configured_cap')}</li>
-      <li><strong>Pre-citation words:</strong> {diagnostics.get('pre_citation_words')}</li>
-      <li><strong>Post-citation words:</strong> {diagnostics.get('post_citation_words')}</li>
-      <li><strong>Post-compression words:</strong> {diagnostics.get('post_compression_words')}</li>
-      <li><strong>Strict target words:</strong> {diagnostics.get('strict_target_words')}</li>
-      <li><strong>Final words:</strong> {diagnostics.get('final_words')}</li>
+      <li><strong>Unique source links:</strong> {quality.get('unique_url_count', 0)} (required: {quality.get('min_links', '?')})</li>
+      <li><strong>Unique source domains:</strong> {quality.get('unique_domain_count', 0)} (required: {quality.get('min_domains', '?')})</li>
+      <li><strong>Status:</strong> insufficient grounding evidence</li>
     </ul>
-    <p>Briefing email was intentionally suppressed. Please review prompt/brevity configuration and model output constraints.</p>
+    <p>This is an operational fallback email sent by the workflow when grounding quality gates are not met.</p>
   </body>
 </html>
 """
@@ -721,6 +765,7 @@ def main() -> None:
     brevity = model_cfg.get("brevity", {}) or {}
 
     prompt = build_prompt(cfg, brevity)
+    citation_thresholds = get_citation_thresholds(cfg)
 
     # Create client with explicit API key (google-genai SDK looks for GOOGLE_API_KEY by default)
     api_key = require_env("GEMINI_API_KEY")
@@ -795,13 +840,12 @@ def main() -> None:
             f"post_citation_words={post_citation_words}, configured_cap={max_words}"
         )
 
-        fallback_links = extract_markdown_links(md_with_cites)
-        final_markdown = ensure_citations_present(md_with_cites, fallback_links)
-        post_compression_words = estimate_word_count(final_markdown)
+        retry_attempted = False
 
-        if post_citation_words > max_words:
-            print("WARN: Briefing exceeds max_words after citations; requesting compression pass.")
-            compression_prompt = build_compression_prompt(final_markdown, max_words)
+        if before_words > max_words:
+            print("WARN: Briefing exceeds max_words; requesting strict compression pass.")
+            fallback_links = extract_markdown_links(md_with_cites)
+            compression_prompt = build_compression_prompt(md_with_cites, max_words)
             compressed_response = generate_with_fallback(client, model_ids, compression_prompt, compression_cfg)
             compressed_text = getattr(compressed_response, "text", "") or ""
             compressed_text = ensure_citations_present(compressed_text, fallback_links)
@@ -846,7 +890,61 @@ def main() -> None:
                 f"INFO: Post-compression words={post_compression_words}, configured_cap={max_words}"
             )
 
-        html = markdown_to_html(final_markdown)
+        quality = meets_citation_threshold(final_markdown, citation_thresholds)
+        print(
+            "INFO: Citation-quality check "
+            f"links={quality['unique_url_count']}/{quality['min_links']} "
+            f"domains={quality['unique_domain_count']}/{quality['min_domains']} "
+            f"passed={quality['threshold_passed']}"
+        )
+
+        if not quality["threshold_passed"]:
+            retry_attempted = True
+            print("WARN: Citation threshold failed; retrying generation with stronger grounding instructions.")
+            stronger_prompt = (
+                f"{prompt}\n\n"
+                "RETRY OVERRIDE: The previous draft failed citation-quality validation. "
+                "Every major section must include multiple grounded citations from diverse domains. "
+                "For each section, ensure factual claims are traceable to explicit markdown links. "
+                "Prioritize official and primary sources, and keep citations distributed across sections."
+            )
+            retry_response = generate_with_fallback(client, model_ids, stronger_prompt, primary_cfg)
+            retry_text = getattr(retry_response, "text", "") or ""
+            retry_md = add_citations_markdown(retry_response)
+            retry_final = retry_md
+
+            retry_words = estimate_word_count(retry_text)
+            if retry_words > max_words:
+                fallback_links = extract_markdown_links(retry_md)
+                compression_prompt = build_compression_prompt(retry_md, max_words)
+                compressed_retry_response = generate_with_fallback(client, model_ids, compression_prompt, compression_cfg)
+                compressed_retry_text = getattr(compressed_retry_response, "text", "") or ""
+                retry_final = ensure_citations_present(compressed_retry_text, fallback_links)
+
+            quality = meets_citation_threshold(retry_final, citation_thresholds)
+            final_markdown = retry_final
+            print(
+                "INFO: Citation-quality check after retry "
+                f"links={quality['unique_url_count']}/{quality['min_links']} "
+                f"domains={quality['unique_domain_count']}/{quality['min_domains']} "
+                f"passed={quality['threshold_passed']}"
+            )
+
+        if not quality["threshold_passed"]:
+            alert_subject = f"{subject_prefix} — insufficient grounding evidence — {today_iso_utc()}"
+            alert_html = build_grounding_alert_html(subject_prefix, quality)
+            send_email(alert_subject, alert_html, smtp_user, recipients, smtp_password)
+            print("OK: grounding alert sent to recipients.")
+            return
+
+        footer_note = None
+        if retry_attempted:
+            footer_note = (
+                "Generated with Gemini + Google Search grounding. "
+                "Initial draft had minor citation-quality deficiencies and was automatically retried before sending."
+            )
+
+        html = markdown_to_html(final_markdown, footer_note=footer_note)
 
         subject = f"{subject_prefix} — {today_iso_utc()}"
         send_email(subject, html, smtp_user, recipients, smtp_password)
