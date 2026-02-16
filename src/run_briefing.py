@@ -633,6 +633,27 @@ def build_quota_alert_html(subject_prefix: str, error_message: str) -> str:
 """
 
 
+def build_length_cap_alert_html(subject_prefix: str, diagnostics: Dict[str, Any]) -> str:
+    now_utc = dt.datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC")
+    return f"""<html>
+  <body style="font-family: Arial, Helvetica, sans-serif; line-height: 1.45;">
+    <h2>{subject_prefix} — length cap alert</h2>
+    <p>The daily briefing run generated content above the configured word cap after all compression attempts.</p>
+    <ul>
+      <li><strong>Time:</strong> {now_utc}</li>
+      <li><strong>Configured cap:</strong> {diagnostics.get('configured_cap')}</li>
+      <li><strong>Pre-citation words:</strong> {diagnostics.get('pre_citation_words')}</li>
+      <li><strong>Post-citation words:</strong> {diagnostics.get('post_citation_words')}</li>
+      <li><strong>Post-compression words:</strong> {diagnostics.get('post_compression_words')}</li>
+      <li><strong>Strict target words:</strong> {diagnostics.get('strict_target_words')}</li>
+      <li><strong>Final words:</strong> {diagnostics.get('final_words')}</li>
+    </ul>
+    <p>Briefing email was intentionally suppressed. Please review prompt/brevity configuration and model output constraints.</p>
+  </body>
+</html>
+"""
+
+
 # -----------------------------
 # Main
 # -----------------------------
@@ -715,27 +736,66 @@ def main() -> None:
             response = generate_with_fallback(client, model_ids, prompt, reduced_cfg)
 
         initial_text = getattr(response, "text", "") or ""
-        before_words = estimate_word_count(initial_text)
-        print(f"INFO: Initial briefing word count={before_words} (max_words={max_words})")
+        pre_citation_words = estimate_word_count(initial_text)
 
         md_with_cites = add_citations_markdown(response)
-        final_markdown = md_with_cites
+        post_citation_words = estimate_word_count(md_with_cites)
 
-        if before_words > max_words:
-            print("WARN: Briefing exceeds max_words; requesting strict compression pass.")
-            fallback_links = extract_markdown_links(md_with_cites)
-            compression_prompt = build_compression_prompt(md_with_cites, max_words)
+        print(
+            f"INFO: Briefing length diagnostics: pre_citation_words={pre_citation_words}, "
+            f"post_citation_words={post_citation_words}, configured_cap={max_words}"
+        )
+
+        fallback_links = extract_markdown_links(md_with_cites)
+        final_markdown = ensure_citations_present(md_with_cites, fallback_links)
+        post_compression_words = estimate_word_count(final_markdown)
+
+        if post_citation_words > max_words:
+            print("WARN: Briefing exceeds max_words after citations; requesting compression pass.")
+            compression_prompt = build_compression_prompt(final_markdown, max_words)
             compressed_response = generate_with_fallback(client, model_ids, compression_prompt, compression_cfg)
             compressed_text = getattr(compressed_response, "text", "") or ""
             compressed_text = ensure_citations_present(compressed_text, fallback_links)
-            after_words = estimate_word_count(compressed_text)
-            print(f"INFO: Compressed briefing word count={after_words} (max_words={max_words})")
             final_markdown = compressed_text
+            post_compression_words = estimate_word_count(final_markdown)
+            print(
+                f"INFO: Post-compression words={post_compression_words}, configured_cap={max_words}"
+            )
 
-            if after_words > max_words:
-                raise RuntimeError(
-                    f"Compressed briefing still exceeds max_words (before={before_words}, after={after_words}, max={max_words}). Email suppressed."
+            if post_compression_words > max_words:
+                strict_target_words = max(200, int(max_words * 0.95))
+                print(
+                    "WARN: First compression still above cap; running strict compression "
+                    f"with lower target={strict_target_words}."
                 )
+                strict_prompt = build_compression_prompt(final_markdown, strict_target_words)
+                strict_response = generate_with_fallback(client, model_ids, strict_prompt, compression_cfg)
+                strict_text = getattr(strict_response, "text", "") or ""
+                strict_text = ensure_citations_present(strict_text, fallback_links)
+                final_markdown = strict_text
+                post_compression_words = estimate_word_count(final_markdown)
+                print(
+                    f"INFO: Post-compression words={post_compression_words}, configured_cap={max_words}"
+                )
+
+                if post_compression_words > max_words:
+                    diagnostics = {
+                        "configured_cap": max_words,
+                        "pre_citation_words": pre_citation_words,
+                        "post_citation_words": post_citation_words,
+                        "post_compression_words": post_compression_words,
+                        "strict_target_words": strict_target_words,
+                        "final_words": post_compression_words,
+                    }
+                    alert_subject = f"{subject_prefix} — length cap alert — {today_iso_utc()}"
+                    alert_html = build_length_cap_alert_html(subject_prefix, diagnostics)
+                    send_email(alert_subject, alert_html, smtp_user, recipients, smtp_password)
+                    print("OK: length cap alert sent to recipients; briefing email suppressed.")
+                    return
+        else:
+            print(
+                f"INFO: Post-compression words={post_compression_words}, configured_cap={max_words}"
+            )
 
         html = markdown_to_html(final_markdown)
 
