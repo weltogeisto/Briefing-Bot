@@ -39,6 +39,14 @@ In your repo: **Settings → Secrets and variables → Actions → New repositor
 
 Cron is UTC. Adjust if you want a fixed Berlin send time year-round.
 
+### Recommended repository settings (GitHub UI)
+
+This project is automation-only and does not require GitHub Pages.
+
+- Go to **Settings → Pages** and set **Build and deployment → Source = Deploy from a branch → None** (or equivalent disabled state).
+- If you intentionally use Pages in your fork, keep a valid branch/folder pair and avoid workflow triggers that can recursively re-trigger each other.
+- In **Actions**, this repo should only need **Send Public Sector Briefing** for normal operation.
+
 ---
 
 ## 3) Customize territory + accounts
