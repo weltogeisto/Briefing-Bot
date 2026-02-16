@@ -490,6 +490,54 @@ def ensure_citations_present(markdown_text: str, fallback_citations: List[str]) 
     return f"{markdown_text.rstrip()}\n\n## Sources\n{source_lines}\n"
 
 
+def normalize_markdown(markdown_text: str) -> str:
+    return (markdown_text or "").strip()
+
+
+def briefing_validation_requirements(cfg: dict) -> Dict[str, Any]:
+    briefing_mode = (cfg.get("briefing_mode", "standard") or "standard").strip().lower()
+    if briefing_mode not in {"standard", "compact"}:
+        briefing_mode = "standard"
+
+    compact_min = int(os.getenv("BRIEFING_MIN_WORDS_COMPACT", "250"))
+    standard_min = int(os.getenv("BRIEFING_MIN_WORDS_STANDARD", "400"))
+    min_words = compact_min if briefing_mode == "compact" else standard_min
+
+    required_markers = [
+        "⚡ TODAY'S TOP PRIORITY",
+        "## 1. VERIFIED HARD SIGNALS",
+    ]
+    return {
+        "mode": briefing_mode,
+        "min_words": min_words,
+        "required_markers": required_markers,
+    }
+
+
+def validate_briefing_markdown(markdown_text: str, cfg: dict) -> Dict[str, Any]:
+    normalized = normalize_markdown(markdown_text)
+    final_word_count = estimate_word_count(normalized)
+    requirements = briefing_validation_requirements(cfg)
+    missing_markers = [m for m in requirements["required_markers"] if m not in normalized]
+    validation_passed = bool(normalized) and final_word_count >= requirements["min_words"] and not missing_markers
+
+    reason_parts: List[str] = []
+    if not normalized:
+        reason_parts.append("empty_output")
+    if final_word_count < requirements["min_words"]:
+        reason_parts.append(f"word_count_too_low:{final_word_count}<{requirements['min_words']}")
+    if missing_markers:
+        reason_parts.append(f"missing_markers:{', '.join(missing_markers)}")
+
+    return {
+        "normalized_markdown": normalized,
+        "final_word_count": final_word_count,
+        "validation_passed": validation_passed,
+        "reason": "; ".join(reason_parts) if reason_parts else "ok",
+        "requirements": requirements,
+    }
+
+
 # -----------------------------
 # Email
 # -----------------------------
@@ -686,7 +734,8 @@ def main() -> None:
     grounding_tool = types.Tool(google_search=types.GoogleSearch())
     base_max_tokens = int((cfg.get("model") or {}).get("max_output_tokens", 3800))
     base_temperature = float((cfg.get("model") or {}).get("temperature", 0.2))
-    max_words = int((cfg.get("model") or {}).get("max_words", 2200))
+    max_words = int(brevity.get("max_words", 1300))
+    print(f"INFO: Effective max_words cap={max_words}")
 
     # Use only explicitly configured models.
     cfg_models_raw = (cfg.get("model") or {}).get("preferred_models", []) or []
