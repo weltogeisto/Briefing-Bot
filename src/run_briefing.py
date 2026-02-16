@@ -490,6 +490,54 @@ def ensure_citations_present(markdown_text: str, fallback_citations: List[str]) 
     return f"{markdown_text.rstrip()}\n\n## Sources\n{source_lines}\n"
 
 
+def normalize_markdown(markdown_text: str) -> str:
+    return (markdown_text or "").strip()
+
+
+def briefing_validation_requirements(cfg: dict) -> Dict[str, Any]:
+    briefing_mode = (cfg.get("briefing_mode", "standard") or "standard").strip().lower()
+    if briefing_mode not in {"standard", "compact"}:
+        briefing_mode = "standard"
+
+    compact_min = int(os.getenv("BRIEFING_MIN_WORDS_COMPACT", "250"))
+    standard_min = int(os.getenv("BRIEFING_MIN_WORDS_STANDARD", "400"))
+    min_words = compact_min if briefing_mode == "compact" else standard_min
+
+    required_markers = [
+        "⚡ TODAY'S TOP PRIORITY",
+        "## 1. VERIFIED HARD SIGNALS",
+    ]
+    return {
+        "mode": briefing_mode,
+        "min_words": min_words,
+        "required_markers": required_markers,
+    }
+
+
+def validate_briefing_markdown(markdown_text: str, cfg: dict) -> Dict[str, Any]:
+    normalized = normalize_markdown(markdown_text)
+    final_word_count = estimate_word_count(normalized)
+    requirements = briefing_validation_requirements(cfg)
+    missing_markers = [m for m in requirements["required_markers"] if m not in normalized]
+    validation_passed = bool(normalized) and final_word_count >= requirements["min_words"] and not missing_markers
+
+    reason_parts: List[str] = []
+    if not normalized:
+        reason_parts.append("empty_output")
+    if final_word_count < requirements["min_words"]:
+        reason_parts.append(f"word_count_too_low:{final_word_count}<{requirements['min_words']}")
+    if missing_markers:
+        reason_parts.append(f"missing_markers:{', '.join(missing_markers)}")
+
+    return {
+        "normalized_markdown": normalized,
+        "final_word_count": final_word_count,
+        "validation_passed": validation_passed,
+        "reason": "; ".join(reason_parts) if reason_parts else "ok",
+        "requirements": requirements,
+    }
+
+
 # -----------------------------
 # Email
 # -----------------------------
@@ -633,6 +681,24 @@ def build_quota_alert_html(subject_prefix: str, error_message: str) -> str:
 """
 
 
+def build_operational_alert_html(subject_prefix: str, reason: str) -> str:
+    now_utc = dt.datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC")
+    return f"""<html>
+  <body style="font-family: Arial, Helvetica, sans-serif; line-height: 1.45;">
+    <h2>{subject_prefix} — operational alert</h2>
+    <p>The daily briefing run could not produce valid briefing content.</p>
+    <ul>
+      <li><strong>Time:</strong> {now_utc}</li>
+      <li><strong>Reason:</strong> empty/invalid briefing output</li>
+      <li><strong>Details:</strong> {reason}</li>
+      <li><strong>Action needed:</strong> Review generation prompt/instructions and recent model behavior in workflow logs.</li>
+    </ul>
+    <p>This is an operational fallback email sent by the workflow when briefing output validation fails.</p>
+  </body>
+</html>
+"""
+
+
 # -----------------------------
 # Main
 # -----------------------------
@@ -736,6 +802,41 @@ def main() -> None:
                 raise RuntimeError(
                     f"Compressed briefing still exceeds max_words (before={before_words}, after={after_words}, max={max_words}). Email suppressed."
                 )
+
+        validation = validate_briefing_markdown(final_markdown, cfg)
+        final_markdown = validation["normalized_markdown"]
+        print(f"INFO: initial_word_count={before_words}")
+        print(f"INFO: final_word_count={validation['final_word_count']}")
+        print(f"INFO: validation_passed={validation['validation_passed']}")
+
+        if not validation["validation_passed"]:
+            print(f"WARN: Briefing validation failed (attempt=1): {validation['reason']}")
+            retry_prompt = (
+                f"{prompt}\n\n"
+                "RETRY INSTRUCTIONS (MANDATORY):\n"
+                "- Output the FULL markdown template exactly as specified in the instructions.\n"
+                "- Do NOT omit sections, headers, or tables.\n"
+                "- Ensure the output is complete, non-empty, and includes all required section markers.\n"
+                "- No placeholders like 'same structure' or abbreviated omissions.\n"
+            )
+            retry_response = generate_with_fallback(client, model_ids, retry_prompt, primary_cfg)
+            retry_md_with_cites = add_citations_markdown(retry_response)
+            retry_before_words = estimate_word_count(getattr(retry_response, "text", "") or "")
+            retry_validation = validate_briefing_markdown(retry_md_with_cites, cfg)
+
+            print(f"INFO: initial_word_count={retry_before_words}")
+            print(f"INFO: final_word_count={retry_validation['final_word_count']}")
+            print(f"INFO: validation_passed={retry_validation['validation_passed']}")
+
+            if not retry_validation["validation_passed"]:
+                print(f"WARN: Briefing validation failed (attempt=2): {retry_validation['reason']}")
+                alert_subject = f"{subject_prefix} — operational alert — {today_iso_utc()}"
+                alert_html = build_operational_alert_html(subject_prefix, retry_validation["reason"])
+                send_email(alert_subject, alert_html, smtp_user, recipients, smtp_password)
+                print("OK: operational alert sent due to invalid briefing output.")
+                return
+
+            final_markdown = retry_validation["normalized_markdown"]
 
         html = markdown_to_html(final_markdown)
 
