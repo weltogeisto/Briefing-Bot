@@ -665,7 +665,8 @@ def main() -> None:
     grounding_tool = types.Tool(google_search=types.GoogleSearch())
     base_max_tokens = int((cfg.get("model") or {}).get("max_output_tokens", 3800))
     base_temperature = float((cfg.get("model") or {}).get("temperature", 0.2))
-    max_words = int((cfg.get("model") or {}).get("max_words", 2200))
+    max_words = int(brevity.get("max_words", 1300))
+    print(f"INFO: Effective max_words cap={max_words}")
 
     # Use only explicitly configured models.
     cfg_models_raw = (cfg.get("model") or {}).get("preferred_models", []) or []
