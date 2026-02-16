@@ -537,6 +537,54 @@ def ensure_citations_present(markdown_text: str, fallback_citations: List[str]) 
     return f"{markdown_text.rstrip()}\n\n## Sources\n{source_lines}\n"
 
 
+def normalize_markdown(markdown_text: str) -> str:
+    return (markdown_text or "").strip()
+
+
+def briefing_validation_requirements(cfg: dict) -> Dict[str, Any]:
+    briefing_mode = (cfg.get("briefing_mode", "standard") or "standard").strip().lower()
+    if briefing_mode not in {"standard", "compact"}:
+        briefing_mode = "standard"
+
+    compact_min = int(os.getenv("BRIEFING_MIN_WORDS_COMPACT", "250"))
+    standard_min = int(os.getenv("BRIEFING_MIN_WORDS_STANDARD", "400"))
+    min_words = compact_min if briefing_mode == "compact" else standard_min
+
+    required_markers = [
+        "⚡ TODAY'S TOP PRIORITY",
+        "## 1. VERIFIED HARD SIGNALS",
+    ]
+    return {
+        "mode": briefing_mode,
+        "min_words": min_words,
+        "required_markers": required_markers,
+    }
+
+
+def validate_briefing_markdown(markdown_text: str, cfg: dict) -> Dict[str, Any]:
+    normalized = normalize_markdown(markdown_text)
+    final_word_count = estimate_word_count(normalized)
+    requirements = briefing_validation_requirements(cfg)
+    missing_markers = [m for m in requirements["required_markers"] if m not in normalized]
+    validation_passed = bool(normalized) and final_word_count >= requirements["min_words"] and not missing_markers
+
+    reason_parts: List[str] = []
+    if not normalized:
+        reason_parts.append("empty_output")
+    if final_word_count < requirements["min_words"]:
+        reason_parts.append(f"word_count_too_low:{final_word_count}<{requirements['min_words']}")
+    if missing_markers:
+        reason_parts.append(f"missing_markers:{', '.join(missing_markers)}")
+
+    return {
+        "normalized_markdown": normalized,
+        "final_word_count": final_word_count,
+        "validation_passed": validation_passed,
+        "reason": "; ".join(reason_parts) if reason_parts else "ok",
+        "requirements": requirements,
+    }
+
+
 # -----------------------------
 # Email
 # -----------------------------
@@ -731,7 +779,8 @@ def main() -> None:
     grounding_tool = types.Tool(google_search=types.GoogleSearch())
     base_max_tokens = int((cfg.get("model") or {}).get("max_output_tokens", 3800))
     base_temperature = float((cfg.get("model") or {}).get("temperature", 0.2))
-    max_words = int((cfg.get("model") or {}).get("max_words", 2200))
+    max_words = int(brevity.get("max_words", 1300))
+    print(f"INFO: Effective max_words cap={max_words}")
 
     # Use only explicitly configured models.
     cfg_models_raw = (cfg.get("model") or {}).get("preferred_models", []) or []
@@ -781,11 +830,15 @@ def main() -> None:
             response = generate_with_fallback(client, model_ids, prompt, reduced_cfg)
 
         initial_text = getattr(response, "text", "") or ""
-        before_words = estimate_word_count(initial_text)
-        print(f"INFO: Initial briefing word count={before_words} (max_words={max_words})")
+        pre_citation_words = estimate_word_count(initial_text)
 
         md_with_cites = add_citations_markdown(response)
-        final_markdown = md_with_cites
+        post_citation_words = estimate_word_count(md_with_cites)
+
+        print(
+            f"INFO: Briefing length diagnostics: pre_citation_words={pre_citation_words}, "
+            f"post_citation_words={post_citation_words}, configured_cap={max_words}"
+        )
 
         retry_attempted = False
 
@@ -796,14 +849,46 @@ def main() -> None:
             compressed_response = generate_with_fallback(client, model_ids, compression_prompt, compression_cfg)
             compressed_text = getattr(compressed_response, "text", "") or ""
             compressed_text = ensure_citations_present(compressed_text, fallback_links)
-            after_words = estimate_word_count(compressed_text)
-            print(f"INFO: Compressed briefing word count={after_words} (max_words={max_words})")
             final_markdown = compressed_text
+            post_compression_words = estimate_word_count(final_markdown)
+            print(
+                f"INFO: Post-compression words={post_compression_words}, configured_cap={max_words}"
+            )
 
-            if after_words > max_words:
-                raise RuntimeError(
-                    f"Compressed briefing still exceeds max_words (before={before_words}, after={after_words}, max={max_words}). Email suppressed."
+            if post_compression_words > max_words:
+                strict_target_words = max(200, int(max_words * 0.95))
+                print(
+                    "WARN: First compression still above cap; running strict compression "
+                    f"with lower target={strict_target_words}."
                 )
+                strict_prompt = build_compression_prompt(final_markdown, strict_target_words)
+                strict_response = generate_with_fallback(client, model_ids, strict_prompt, compression_cfg)
+                strict_text = getattr(strict_response, "text", "") or ""
+                strict_text = ensure_citations_present(strict_text, fallback_links)
+                final_markdown = strict_text
+                post_compression_words = estimate_word_count(final_markdown)
+                print(
+                    f"INFO: Post-compression words={post_compression_words}, configured_cap={max_words}"
+                )
+
+                if post_compression_words > max_words:
+                    diagnostics = {
+                        "configured_cap": max_words,
+                        "pre_citation_words": pre_citation_words,
+                        "post_citation_words": post_citation_words,
+                        "post_compression_words": post_compression_words,
+                        "strict_target_words": strict_target_words,
+                        "final_words": post_compression_words,
+                    }
+                    alert_subject = f"{subject_prefix} — length cap alert — {today_iso_utc()}"
+                    alert_html = build_length_cap_alert_html(subject_prefix, diagnostics)
+                    send_email(alert_subject, alert_html, smtp_user, recipients, smtp_password)
+                    print("OK: length cap alert sent to recipients; briefing email suppressed.")
+                    return
+        else:
+            print(
+                f"INFO: Post-compression words={post_compression_words}, configured_cap={max_words}"
+            )
 
         quality = meets_citation_threshold(final_markdown, citation_thresholds)
         print(
