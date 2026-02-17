@@ -150,7 +150,7 @@
   "entity_coverage": {
     "mode": "portal_first_plus_spotlight",
     "entity_universe_path": "entity_universe.json",
-    "spotlight_entities_per_day": 25,
+    "spotlight_entities_per_day": 5,
     "always_include": [
       "FITKO (IT-Planungsrat)",
       "BVA (Bundesverwaltungsamt)",

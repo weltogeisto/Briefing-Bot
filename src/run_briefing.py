@@ -109,10 +109,10 @@ def get_citation_thresholds(cfg: dict) -> Dict[str, int]:
     quality_cfg = ((cfg or {}).get("model") or {}).get("citation_quality", {}) or {}
     mode_cfg = quality_cfg.get(mode, {}) or {}
     if mode == "compact":
-        min_links = int(mode_cfg.get("min_links", 5))
-        min_domains = int(mode_cfg.get("min_domains", 3))
+        min_links = int(mode_cfg.get("min_links", 3))
+        min_domains = int(mode_cfg.get("min_domains", 2))
     else:
-        min_links = int(mode_cfg.get("min_links", 6))
+        min_links = int(mode_cfg.get("min_links", 5))
         min_domains = int(mode_cfg.get("min_domains", 3))
     return {"mode": mode, "min_links": min_links, "min_domains": min_domains}
 
@@ -239,6 +239,11 @@ CRITICAL RULES (MUST FOLLOW):
 8. Brevity is mandatory: target {target_min}-{target_max} words total, never exceed {max_words} words.
 9. Enforce section limits: Top Priority <= {top_priority_limit} words; each Hard Signal block (including table text) <= {signal_limit} words; Regulatory Countdown section <= {regulatory_limit} words.
 
+ZERO-TOLERANCE FOR FABRICATION:
+- If Google Search returns no relevant recent results for an entity or topic, DO NOT fill in with generic or outdated information. Simply skip that entity.
+- If fewer than 2 verified hard signals exist this week, include only what you found. Writing "No verified signals in this period" for a section is preferable to inventing content.
+- Every date, budget figure, contract value, and organizational name MUST come from a search result. If you cannot cite it, do not include it.
+
 ITEM SCORING RUBRIC (APPLY BEFORE INCLUDING ANY CANDIDATE ITEM):
 - Score each candidate item on a 0-5 scale for:
   1) Impact on near-term BD opportunity
@@ -247,13 +252,17 @@ ITEM SCORING RUBRIC (APPLY BEFORE INCLUDING ANY CANDIDATE ITEM):
 - Compute total score out of 15.
 - Minimum inclusion threshold: include only items scoring >=10/15.
 - If an item scores below threshold, DROP it (do not summarize it in the output).
+- A shorter briefing with 2 real signals is far more valuable than a longer briefing with fabricated content.
 
 OUTPUT FORMAT (Markdown - follow this structure EXACTLY):
 
 COMPACT OUTPUT RULES:
-- If fewer than 3 high-confidence developments are available for a section, provide 2 verified signals instead of forcing 3.
+- Include ONLY signals backed by sources found via Google Search. Never pad sections with generic or outdated content.
+- If fewer than 3 high-confidence developments are available, include only what you found (1 or 2 is fine).
+- If NO verified developments exist for a section, write: "No verified signals in this period." — do not invent content.
 - Limit bullets per subsection to a maximum of 3.
 - Use concise phrasing and single-sentence bullets where possible.
+- Section 6 (Capability Quick Reference) is a static reference — fill it from the provided themes without searching.
 
 ---
 
@@ -369,6 +378,7 @@ def build_prompt(cfg: dict, brevity: Dict[str, Any]) -> str:
     User prompt with the specific briefing parameters for today.
     """
     today = today_iso_utc()
+    day_of_week = dt.datetime.utcnow().strftime("%A")
     lookback = int(cfg.get("lookback_hours", 72))
     briefing_mode = (cfg.get("briefing_mode", "standard") or "standard").strip().lower()
     if briefing_mode not in {"standard", "compact"}:
@@ -428,44 +438,41 @@ def build_prompt(cfg: dict, brevity: Dict[str, Any]) -> str:
     return f"""Generate today's {brand_title}
 {brand_subtitle}
 
-**Date:** {today}
+**Date:** {today} ({day_of_week})
 **Prepared for:** {prepared_for}
 **Territory:** {territory}
 **Briefing mode:** {briefing_mode}
 
-SEARCH GOOGLE NOW for current developments from the last {lookback} hours.
+STEP 1 — SEARCH GOOGLE NOW. Search for each priority entity below individually. Look for:
+- Official press releases, procurement notices, tender announcements from the last {lookback} hours
+- Budget decisions, policy announcements, leadership changes
+- IT/digital strategy updates, contract awards, project milestones
+If a search returns no recent relevant results for an entity, move on — do NOT fabricate content for it.
 
-PRIORITY ENTITIES TO RESEARCH (search for recent news, press releases, procurement announcements):
+PRIORITY ENTITIES TO RESEARCH:
 {acct_section}
 
-ADDITIONAL ENTITIES IN TODAY'S SPOTLIGHT:
+ADDITIONAL SPOTLIGHT ENTITIES (search only if time permits after priority entities):
 {spotlight_str}
 
-KEY REGULATORY ITEMS (verify current status and calculate T-minus days from today {today}):
+STEP 2 — REGULATORY COUNTDOWN. Verify these items and calculate T-minus days from today {today}:
 {reg_section}
 
-STRATEGIC THEMES TO COVER (pick ONE for section 3, choose based on most newsworthy current developments):
+STEP 3 — STRATEGIC THEME. Pick ONE theme based on which has the most newsworthy VERIFIED developments right now:
 {theme_section}
 
-GARTNER CAPABILITY THEMES FOR SECTION 6:
+STEP 4 — GENERATE BRIEFING. Follow the exact format from your system instructions.
+- Only include signals backed by sources found in Step 1.
+- Section 6 (Capability Quick Reference) is a static reference table — fill it using the themes below without searching:
 {chr(10).join('- ' + c for c in capability_themes)}
-
-INSTRUCTIONS:
-1. Search Google for CURRENT news about each entity and theme
-2. Find 2-3 VERIFIED hard signals with real sources (budgets, MoUs, procurements, policy announcements)
-3. Calculate exact T-minus days for regulatory deadlines from today's date ({today})
-4. Create actionable Gartner Plays and Advisory Openings for each signal
-5. Generate the briefing following the EXACT format from your system instructions
-6. Include real source domains in the footer (e.g., BMDS.bund.de, Bundestag.de, eGovernment.de)
-7. Apply briefing_mode behavior:
-   - compact: prioritize high-signal items, keep wording concise, and follow compact output rules.
-   - standard: provide fuller context while still following compact output constraints when evidence is limited.
+- If you found fewer than 3 hard signals, include only what you verified. Quality over quantity.
+- Include real source domains in the footer (e.g., bmi.bund.de, egovernment.de, kommune21.de).
 
 START THE OUTPUT WITH:
 🇩🇪 {brand_title}
 {brand_subtitle}
 
-Date: {today} | Prepared for: {prepared_for} | Territory: {territory}"""
+Date: {today} ({day_of_week}) | Prepared for: {prepared_for} | Territory: {territory}"""
 
 
 # -----------------------------
@@ -728,6 +735,25 @@ def build_quota_alert_html(subject_prefix: str, error_message: str) -> str:
 """
 
 
+def build_length_cap_alert_html(subject_prefix: str, diagnostics: Dict[str, Any]) -> str:
+    now_utc = dt.datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC")
+    return f"""<html>
+  <body style="font-family: Arial, Helvetica, sans-serif; line-height: 1.45;">
+    <h2>{subject_prefix} — length cap alert</h2>
+    <p>The daily briefing exceeded the configured word-count cap even after two compression passes.</p>
+    <ul>
+      <li><strong>Time:</strong> {now_utc}</li>
+      <li><strong>Configured cap:</strong> {diagnostics.get('configured_cap', '?')} words</li>
+      <li><strong>Pre-citation words:</strong> {diagnostics.get('pre_citation_words', '?')}</li>
+      <li><strong>Post-compression words:</strong> {diagnostics.get('post_compression_words', '?')}</li>
+      <li><strong>Final words:</strong> {diagnostics.get('final_words', '?')}</li>
+    </ul>
+    <p>The briefing email was suppressed. Consider lowering max_output_tokens or tightening brevity targets.</p>
+  </body>
+</html>
+"""
+
+
 def build_grounding_alert_html(subject_prefix: str, quality: Dict[str, Any]) -> str:
     now_utc = dt.datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC")
     return f"""<html>
@@ -886,9 +912,8 @@ def main() -> None:
                     print("OK: length cap alert sent to recipients; briefing email suppressed.")
                     return
         else:
-            print(
-                f"INFO: Post-compression words={post_compression_words}, configured_cap={max_words}"
-            )
+            final_markdown = md_with_cites
+            print(f"INFO: Briefing within word cap ({pre_citation_words} <= {max_words}); no compression needed.")
 
         quality = meets_citation_threshold(final_markdown, citation_thresholds)
         print(
