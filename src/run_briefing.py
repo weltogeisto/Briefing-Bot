@@ -842,7 +842,7 @@ def main() -> None:
 
         retry_attempted = False
 
-        if before_words > max_words:
+        if pre_citation_words > max_words:
             print("WARN: Briefing exceeds max_words; requesting strict compression pass.")
             fallback_links = extract_markdown_links(md_with_cites)
             compression_prompt = build_compression_prompt(md_with_cites, max_words)
