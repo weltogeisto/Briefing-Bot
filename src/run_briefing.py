@@ -956,18 +956,24 @@ def main() -> None:
             )
 
         if not quality["threshold_passed"]:
-            alert_subject = f"{subject_prefix} — insufficient grounding evidence — {today_iso_utc()}"
-            alert_html = build_grounding_alert_html(subject_prefix, quality)
-            send_email(alert_subject, alert_html, smtp_user, recipients, smtp_password)
-            print("OK: grounding alert sent to recipients.")
-            return
-
-        footer_note = None
-        if retry_attempted:
+            print(
+                f"WARN: Citation quality below threshold after retry "
+                f"(links={quality['unique_url_count']}/{quality['min_links']}, "
+                f"domains={quality['unique_domain_count']}/{quality['min_domains']}); "
+                "sending briefing with low-grounding footer note."
+            )
+            footer_note = (
+                f"⚠️ Grounding note: This briefing was generated with fewer verified source links than usual "
+                f"({quality['unique_url_count']} links, {quality['unique_domain_count']} domains). "
+                "Treat all factual claims with extra scrutiny and verify independently."
+            )
+        elif retry_attempted:
             footer_note = (
                 "Generated with Gemini + Google Search grounding. "
                 "Initial draft had minor citation-quality deficiencies and was automatically retried before sending."
             )
+        else:
+            footer_note = None
 
         html = markdown_to_html(final_markdown, footer_note=footer_note)
 
