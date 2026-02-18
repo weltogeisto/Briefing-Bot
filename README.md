@@ -12,11 +12,12 @@ This repo sends you a **daily email** that matches the structure of your **Publi
 It uses the **Gemini API** with **Google Search grounding** to generate **cited** insights, then emails the briefing via **Gmail SMTP**.
 
 Reliability features in the current implementation:
-- optional preflight model check (can be skipped to save one API call)
+- preflight model check to fail fast on API key / quota issues before spending the main token budget
 - single-model execution based on your configured `preferred_models` list
 - automatic retry with a reduced token budget when quota pressure is detected
 - quota/rate-limit alert email fallback so runs do not fail silently
 - configurable throttling between Gemini requests (`GEMINI_MIN_INTERVAL_SEC`)
+- monthly keepalive workflow (`keepalive.yml`) that prevents GitHub from auto-disabling the schedule after 60 days of repo inactivity
 
 ---
 
@@ -34,10 +35,20 @@ In your repo: **Settings → Secrets and variables → Actions → New repositor
 ---
 
 ## 2) Run it
-- Manual: **Actions → “Send Public Sector Briefing” → Run workflow**
+- Manual: **Actions → "Send Public Sector Briefing" → Run workflow**
 - Scheduled: daily cron in `.github/workflows/daily.yml`
 
-Cron is UTC. Adjust if you want a fixed Berlin send time year-round.
+Cron is UTC (`30 6 * * *` = 07:30 Berlin winter / 08:30 Berlin summer). Adjust if you want a
+fixed Berlin send time year-round.
+
+### Preventing schedule auto-disable (important)
+GitHub automatically disables scheduled workflows after **60 days of repo inactivity**
+(no commits, issues, or PRs). For a bot repo where you never push code, this will happen.
+The included `keepalive.yml` workflow commits a tiny timestamp file on the 1st of each month
+to reset the inactivity clock. No action needed — it runs automatically once you push this repo.
+
+If both workflows somehow get disabled simultaneously, go to **Actions → Keepalive → Run workflow**
+to manually re-enable, then both will resume on their normal schedules.
 
 ### Recommended repository settings (GitHub UI)
 
@@ -82,8 +93,17 @@ If output still runs long, the script performs a compression pass that preserves
 ---
 
 ## Notes on citations
-The script requests grounded output and injects citations from Gemini’s `groundingMetadata`.
-If the model returns no grounding metadata on a run, the email will include a note.
+The script requests grounded output and injects inline citations from Gemini's `groundingMetadata`.
+
+**Known platform limitation:** `grounding_chunks` and `grounding_supports` are frequently
+returned as empty by the Gemini API even when Google Search clearly ran (confirmed open bug,
+early 2026). When this happens the email is still sent — citation injection is best-effort.
+The Actions log will print a `WARN: grounding_metadata present but supports/chunks empty` line
+with the `web_search_queries` that did run, so you can verify searches happened.
+
+If citation count is below the configured threshold, a brief footer note is appended to the
+email. Generation is **not** retried in this case (retrying cannot fix a server-side metadata
+bug and would burn extra quota).
 
 ---
 

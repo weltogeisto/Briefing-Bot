@@ -1,0 +1,33 @@
+name: Keepalive
+
+# GitHub automatically disables scheduled workflows after 60 days of repository
+# inactivity (no commits, issues, or pull requests). This workflow commits a small
+# marker file once a month to reset the inactivity clock and keep daily.yml running.
+#
+# If BOTH this workflow AND daily.yml are disabled (requires >60 days of zero
+# activity of any kind), you must manually re-enable them in GitHub → Actions.
+
+on:
+  schedule:
+    # 1st of each month at 08:00 UTC
+    - cron: "0 8 1 * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  keepalive:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Commit keepalive marker
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          printf '%s\n' "$(date -u +"%Y-%m-%dT%H:%M:%SZ")" > .github/keepalive
+          git add .github/keepalive
+          # Only commit if the file actually changed (idempotent if run twice in a month)
+          git diff --staged --quiet || git commit -m "chore: keepalive $(date -u +%Y-%m)"
+          git push
