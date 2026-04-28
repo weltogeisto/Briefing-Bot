@@ -52,6 +52,22 @@ def load_json(name):
         return json.load(f)
 
 
+def sample_candidate():
+    return {
+        "title": "Neue CIO Leitung fuer Sachsen digital ernannt",
+        "url": "https://www.sachsen.de/news/cio-leitung",
+        "domain": "sachsen.de",
+        "source_tier": "official",
+        "account_matches": ["Freistaat Sachsen"],
+        "theme_matches": [],
+        "leadership_hits": ["cio", "leitung"],
+        "procurement_hits": [],
+        "regulatory_hits": [],
+        "score": 29,
+        "score_reasons": ["leadership", "account_match", "official_source"],
+    }
+
+
 def test_ci_runs_compile_and_tests_on_main_and_codex_branches():
     ci = (ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
 
@@ -276,6 +292,8 @@ TODAY'S TOP PRIORITY
     monkeypatch.setenv("RECIPIENT_EMAIL", "bd@example.com")
     monkeypatch.setenv("SMTP_USER", "sender@example.com")
     monkeypatch.setenv("SMTP_PASSWORD", "password")
+    monkeypatch.setenv("BRIEFING_ARTIFACT_DIR", str(ROOT / ".pytest-artifacts"))
+    monkeypatch.setattr(rb, "collect_source_candidates", lambda cfg: ([sample_candidate()], []))
     monkeypatch.setattr(rb.genai, "Client", lambda api_key: fake_client)
     monkeypatch.setattr(rb, "throttle_gemini_calls", lambda: None)
     monkeypatch.setattr(rb, "today_iso_utc", lambda: "2026-04-28")
@@ -293,3 +311,85 @@ TODAY'S TOP PRIORITY
     assert "quality alert" in sent[0]["subject"].lower()
     assert "weak_source_language" in sent[0]["html"]
     assert "FITKO continues OZG 2.0 coordination" not in sent[0]["html"]
+
+
+def test_main_sends_source_only_digest_after_rate_limit_when_candidates_exist(monkeypatch):
+    rb = load_run_briefing()
+
+    class FakeModels:
+        def __init__(self):
+            self.calls = []
+
+        def generate_content(self, **kwargs):
+            self.calls.append(kwargs)
+            if len(self.calls) == 1:
+                return types.SimpleNamespace(text="OK", candidates=[])
+            raise RuntimeError("HTTP 429: Provider returned error")
+
+        def list(self):
+            return []
+
+    fake_models = FakeModels()
+    fake_client = types.SimpleNamespace(models=fake_models)
+    sent = []
+
+    monkeypatch.setenv("GEMINI_API_KEY", "fake")
+    monkeypatch.setenv("RECIPIENT_EMAIL", "bd@example.com")
+    monkeypatch.setenv("SMTP_USER", "sender@example.com")
+    monkeypatch.setenv("SMTP_PASSWORD", "password")
+    monkeypatch.setenv("BRIEFING_ARTIFACT_DIR", str(ROOT / ".pytest-artifacts"))
+    monkeypatch.setattr(rb, "collect_source_candidates", lambda cfg: ([sample_candidate()], []))
+    monkeypatch.setattr(rb.genai, "Client", lambda api_key: fake_client)
+    monkeypatch.setattr(rb, "throttle_gemini_calls", lambda: None)
+    monkeypatch.setattr(rb, "today_iso_utc", lambda: "2026-04-28")
+    monkeypatch.setattr(
+        rb,
+        "send_email",
+        lambda subject, html, sender, recipients, smtp_password: sent.append(
+            {"subject": subject, "html": html, "recipients": recipients}
+        ),
+    )
+
+    rb.main()
+
+    assert len(sent) == 1
+    assert "source-only digest" in sent[0]["subject"].lower()
+    assert "Neue CIO Leitung fuer Sachsen digital ernannt" in sent[0]["html"]
+    assert len(fake_models.calls) == 4
+
+
+def test_newsroom_prompt_contains_only_structured_candidates_with_urls():
+    rb = load_run_briefing()
+    cfg = load_json("config.json")
+    prompt = rb.build_newsroom_prompt(cfg, [sample_candidate()], [])
+
+    assert "Candidate source records" in prompt
+    assert "https://www.sachsen.de/news/cio-leitung" in prompt
+    assert "Top story must be a leadership/stakeholder" in prompt
+    assert "EU AI Act or regulatory items are compact side notes" in prompt
+
+
+def test_main_sends_quality_alert_when_collector_finds_no_candidates(monkeypatch):
+    rb = load_run_briefing()
+    sent = []
+
+    monkeypatch.setenv("GEMINI_API_KEY", "fake")
+    monkeypatch.setenv("RECIPIENT_EMAIL", "bd@example.com")
+    monkeypatch.setenv("SMTP_USER", "sender@example.com")
+    monkeypatch.setenv("SMTP_PASSWORD", "password")
+    monkeypatch.setenv("BRIEFING_ARTIFACT_DIR", str(ROOT / ".pytest-artifacts"))
+    monkeypatch.setattr(rb, "collect_source_candidates", lambda cfg: ([], [{"source_id": "x", "rejection_reason": "fetch"}]))
+    monkeypatch.setattr(rb, "today_iso_utc", lambda: "2026-04-28")
+    monkeypatch.setattr(
+        rb,
+        "send_email",
+        lambda subject, html, sender, recipients, smtp_password: sent.append(
+            {"subject": subject, "html": html, "recipients": recipients}
+        ),
+    )
+
+    rb.main()
+
+    assert len(sent) == 1
+    assert "quality alert" in sent[0]["subject"].lower()
+    assert "no_collected_candidates" in sent[0]["html"]

@@ -16,6 +16,8 @@ import ssl
 import re
 import time
 import html as html_lib
+import sys
+from pathlib import Path
 from urllib.parse import urlparse
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
@@ -24,6 +26,12 @@ from typing import List, Dict, Any, Optional, Set
 from google import genai
 from google.genai import types
 import markdown as md
+
+try:
+    from source_collection import collect_source_candidates
+except ModuleNotFoundError:
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    from source_collection import collect_source_candidates
 
 
 # -----------------------------
@@ -273,7 +281,7 @@ def format_source_groups_for_prompt(source_groups: List[Dict[str, Any]]) -> str:
 
 def evaluate_briefing_quality(markdown_text: str, thresholds: Dict[str, int]) -> Dict[str, Any]:
     text = markdown_text or ""
-    required_markers = [
+    legacy_markers = [
         "TODAY'S TOP PRIORITY",
         "## 1. VERIFIED HARD SIGNALS",
         "## 2. REGULATORY COUNTDOWN",
@@ -282,7 +290,16 @@ def evaluate_briefing_quality(markdown_text: str, thresholds: Dict[str, int]) ->
         "## 5. CALENDAR: KEY DATES AHEAD",
         "## 6. GARTNER CAPABILITY QUICK REFERENCE",
     ]
-    missing_sections = [marker for marker in required_markers if marker not in text]
+    newsroom_markers = [
+        "TODAY'S TOP PRIORITY",
+        "## 1. NEWSROOM DIGEST",
+        "## 2. BD ACTIONS",
+        "## 3. NO-SIGNAL / SUPPRESSED LEADS",
+        "## 4. QUALITY FOOTER",
+    ]
+    missing_legacy = [marker for marker in legacy_markers if marker not in text]
+    missing_newsroom = [marker for marker in newsroom_markers if marker not in text]
+    missing_sections = [] if not missing_legacy or not missing_newsroom else missing_newsroom
 
     placeholder_pattern = re.compile(
         r"\[(Entity|Date|Month Year|Specific Date|Event|Description|Target|Action|"
@@ -290,7 +307,7 @@ def evaluate_briefing_quality(markdown_text: str, thresholds: Dict[str, int]) ->
         re.IGNORECASE,
     )
     unresolved_placeholders = placeholder_pattern.findall(text)
-    source_rows = re.findall(r"^\|.*\*\*Source\*\*.*\|.*$", text, flags=re.IGNORECASE | re.MULTILINE)
+    source_rows = re.findall(r"^.*\*\*Source\*\*.*$", text, flags=re.IGNORECASE | re.MULTILINE)
     source_row_count = len(source_rows)
     citation_stats = meets_citation_threshold(text, thresholds)
     weak_source_pattern = re.compile(
@@ -617,6 +634,159 @@ START THE OUTPUT WITH:
 Date: {today} ({day_of_week}) | Prepared for: {prepared_for} | Territory: {territory}"""
 
 
+def build_newsroom_prompt(cfg: dict, candidates: List[Dict[str, Any]], rejected: List[Dict[str, Any]]) -> str:
+    today = today_iso_utc()
+    territory = ", ".join(cfg.get("territory", [])) or "Germany Public Sector"
+    settings = cfg.get("email_v2", {}) or {}
+    max_stories = int(settings.get("max_stories", 4))
+    candidate_payload = json.dumps(candidates[: max(max_stories * 3, 8)], ensure_ascii=False, indent=2)
+    rejected_payload = json.dumps(rejected[: int(settings.get("suppressed_leads", 5))], ensure_ascii=False, indent=2)
+    return f"""Create a fast-scan newsroom-style public sector BD digest for {territory}.
+
+Date: {today}
+
+Use ONLY these pre-collected candidate source records. Do not invent additional facts.
+Every story must include markdown source links from candidate.url.
+
+Ranking rules:
+- Top story must be a leadership/stakeholder or named-account opportunity trigger when available.
+- Procurement/project triggers can be included but should not outrank a strong stakeholder-access signal.
+- EU AI Act or regulatory items are compact side notes unless tied to a named account action.
+- If a configured account has no usable evidence, say it was suppressed/no-signal; do not fill with generic background.
+
+Output markdown in this structure:
+
+TODAY'S TOP PRIORITY
+
+## 1. NEWSROOM DIGEST
+
+### Top Story
+- **What changed:** ...
+- **Why it matters:** ...
+- **BD move:** ...
+- **Source:** [source title](https://source-url)
+
+### Other Verified Stories
+Use 1-3 short story bullets, each with **Source:** markdown links.
+
+## 2. BD ACTIONS
+
+| Priority | Account | Trigger | Next move | Evidence |
+|----------|---------|---------|-----------|----------|
+
+## 3. NO-SIGNAL / SUPPRESSED LEADS
+
+List important rejected or no-signal items with reason, not speculation.
+
+## 4. QUALITY FOOTER
+
+Include candidate count, source domains, rejected count, and fallback mode.
+
+Candidate source records:
+{candidate_payload}
+
+Rejected candidate records:
+{rejected_payload}
+"""
+
+
+def source_link(candidate: Dict[str, Any]) -> str:
+    title = candidate.get("title") or candidate.get("source_label") or candidate.get("domain") or "source"
+    return f"[{title}]({candidate.get('url')})"
+
+
+def render_source_only_digest(cfg: dict, candidates: List[Dict[str, Any]], rejected: List[Dict[str, Any]]) -> str:
+    today = today_iso_utc()
+    settings = cfg.get("email_v2", {}) or {}
+    max_stories = int(settings.get("max_stories", 4))
+    selected = candidates[:max_stories]
+    domains = sorted({c.get("domain", "") for c in candidates if c.get("domain")})
+    lines = [
+        "TODAY'S TOP PRIORITY",
+        "",
+        "Source-only fallback: Gemini was unavailable, so this digest contains collected source candidates without model-written analysis.",
+        "",
+        "## 1. NEWSROOM DIGEST",
+        "",
+    ]
+    if selected:
+        top = selected[0]
+        lines.extend([
+            "### Top Story",
+            f"- **What changed:** {top.get('title')}",
+            f"- **Why it matters:** Candidate matched {', '.join(top.get('score_reasons', []) or ['configured source'])}.",
+            f"- **BD move:** Review the source and decide whether this creates a named-account outreach angle.",
+            f"- **Source:** {source_link(top)}",
+            "",
+            "### Other Verified Stories",
+        ])
+        for candidate in selected[1:]:
+            accounts = ", ".join(candidate.get("account_matches", []) or ["unmapped account"])
+            lines.append(f"- **{accounts}:** {candidate.get('title')} **Source:** {source_link(candidate)}")
+    else:
+        lines.append("No verified signals in this period.")
+    lines.extend([
+        "",
+        "## 2. BD ACTIONS",
+        "",
+        "| Priority | Account | Trigger | Next move | Evidence |",
+        "|----------|---------|---------|-----------|----------|",
+    ])
+    for idx, candidate in enumerate(selected, start=1):
+        priority = "P1" if idx == 1 else "P2"
+        account = ", ".join(candidate.get("account_matches", []) or ["Review"])
+        trigger = ", ".join(candidate.get("score_reasons", []) or ["source_candidate"])
+        lines.append(f"| **{priority}** | {account} | {trigger} | Review source and qualify outreach. | {source_link(candidate)} |")
+    lines.extend([
+        "",
+        "## 3. NO-SIGNAL / SUPPRESSED LEADS",
+        "",
+    ])
+    for item in rejected[: int(settings.get("suppressed_leads", 5))]:
+        label = item.get("title") or item.get("url") or item.get("source_id") or "candidate"
+        lines.append(f"- {label}: {item.get('rejection_reason', 'below threshold')}")
+    if not rejected:
+        lines.append("- No rejected candidates recorded.")
+    lines.extend([
+        "",
+        "## 4. QUALITY FOOTER",
+        "",
+        f"- Date: {today}",
+        f"- Candidate count: {len(candidates)}",
+        f"- Source domains: {', '.join(domains) if domains else 'none'}",
+        f"- Rejected count: {len(rejected)}",
+        "- Fallback mode: source_only",
+    ])
+    return "\n".join(lines)
+
+
+def artifacts_dir() -> Path:
+    path = Path(os.getenv("BRIEFING_ARTIFACT_DIR", "artifacts"))
+    path.mkdir(parents=True, exist_ok=True)
+    return path
+
+
+def write_json_artifact(name: str, payload: Any) -> None:
+    path = artifacts_dir() / name
+    path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def write_text_artifact(name: str, text: str) -> None:
+    path = artifacts_dir() / name
+    path.write_text(text or "", encoding="utf-8")
+
+
+def quality_report(markdown_text: str, diagnostics: Dict[str, Any], candidates: List[Dict[str, Any]], rejected: List[Dict[str, Any]], fallback_mode: str) -> Dict[str, Any]:
+    return {
+        "diagnostics": diagnostics,
+        "candidate_count": len(candidates),
+        "rejected_count": len(rejected),
+        "fallback_mode": fallback_mode,
+        "links": extract_markdown_links(markdown_text),
+        "generated_at": dt.datetime.utcnow().replace(microsecond=0).isoformat() + "Z",
+    }
+
+
 # -----------------------------
 # Grounding citations handling
 # -----------------------------
@@ -940,7 +1110,6 @@ def main() -> None:
     model_cfg = cfg.get("model") or {}
     brevity = model_cfg.get("brevity", {}) or {}
 
-    prompt = build_prompt(cfg, brevity)
     citation_thresholds = get_citation_thresholds(cfg)
     discovery_plan = build_discovery_plan(
         cfg,
@@ -954,6 +1123,35 @@ def main() -> None:
         f"priority_entities={len(discovery_plan['priority_entities'])} "
         f"spotlight_entities={len(discovery_plan['spotlight_entities'])}"
     )
+    candidates, rejected_candidates = collect_source_candidates(cfg)
+    write_json_artifact("candidate_signals.json", candidates)
+    write_json_artifact("rejected_candidates.json", rejected_candidates)
+    print(
+        "INFO: Source collector "
+        f"candidates={len(candidates)} rejected={len(rejected_candidates)}"
+    )
+    subject_prefix = (cfg.get("email") or {}).get("subject_prefix", "Public Sector Intelligence Briefing")
+    if not candidates:
+        diagnostics = {
+            "blocking_codes": ["no_collected_candidates"],
+            "warning_codes": ["no_collected_candidates"],
+            "source_link_count": 0,
+            "source_domain_count": 0,
+            "source_row_count": 0,
+            "weak_source_row_count": 0,
+            "missing_sections": [],
+        }
+        write_json_artifact("quality_report.json", quality_report("", diagnostics, candidates, rejected_candidates, "none"))
+        alert_subject = f"{subject_prefix} - quality alert - {today_iso_utc()}"
+        alert_html = build_quality_alert_html(subject_prefix, diagnostics)
+        send_email(alert_subject, alert_html, smtp_user, recipients, smtp_password)
+        print("OK: quality alert sent because no source candidates were collected.")
+        return
+
+    if (cfg.get("email_v2") or {}).get("enabled", False):
+        prompt = build_newsroom_prompt(cfg, candidates, rejected_candidates)
+    else:
+        prompt = build_prompt(cfg, brevity)
 
     # Create client with explicit API key (google-genai SDK looks for GOOGLE_API_KEY by default)
     api_key = require_env("GEMINI_API_KEY")
@@ -985,15 +1183,6 @@ def main() -> None:
         max_output_tokens=base_max_tokens,
     )
 
-    reduced_max_tokens = max(1200, int(base_max_tokens * 0.65))
-    reduced_cfg = types.GenerateContentConfig(
-        system_instruction=system_instruction,
-        tools=[grounding_tool],
-        temperature=base_temperature,
-        top_p=0.95,
-        max_output_tokens=min(reduced_max_tokens, base_max_tokens),
-    )
-
     compression_cfg = types.GenerateContentConfig(
         system_instruction="You are an expert editor. Follow compression instructions exactly.",
         temperature=0.0,
@@ -1001,7 +1190,6 @@ def main() -> None:
         max_output_tokens=base_max_tokens,
     )
 
-    subject_prefix = (cfg.get("email") or {}).get("subject_prefix", "Public Sector Intelligence Briefing")
     skip_preflight = os.getenv("SKIP_PREFLIGHT", "").strip().lower() in {"1", "true", "yes"}
 
     try:
@@ -1011,11 +1199,7 @@ def main() -> None:
             # Preflight to classify common operational failures early.
             run_preflight_check(client, model_ids)
 
-        try:
-            response = generate_with_fallback(client, model_ids, prompt, primary_cfg)
-        except QuotaExceededError:
-            print("WARN: Quota pressure detected, retrying with reduced token budget.")
-            response = generate_with_fallback(client, model_ids, prompt, reduced_cfg)
+        response = generate_with_fallback(client, model_ids, prompt, primary_cfg)
 
         initial_text = getattr(response, "text", "") or ""
         pre_citation_words = estimate_word_count(initial_text)
@@ -1097,6 +1281,8 @@ def main() -> None:
                 "WARN: Briefing suppressed by quality gate "
                 f"blocking_codes={','.join(quality_diagnostics['blocking_codes'])}"
             )
+            write_text_artifact("final_briefing.md", final_markdown)
+            write_json_artifact("quality_report.json", quality_report(final_markdown, quality_diagnostics, candidates, rejected_candidates, "gemini_blocked"))
             alert_subject = f"{subject_prefix} - quality alert - {today_iso_utc()}"
             alert_html = build_quality_alert_html(subject_prefix, quality_diagnostics)
             send_email(alert_subject, alert_html, smtp_user, recipients, smtp_password)
@@ -1126,6 +1312,8 @@ def main() -> None:
             footer_note = None
 
         html = markdown_to_html(final_markdown, footer_note=footer_note)
+        write_text_artifact("final_briefing.md", final_markdown)
+        write_json_artifact("quality_report.json", quality_report(final_markdown, quality_diagnostics, candidates, rejected_candidates, "gemini"))
 
         subject = f"{subject_prefix} — {today_iso_utc()}"
         send_email(subject, html, smtp_user, recipients, smtp_password)
@@ -1133,9 +1321,20 @@ def main() -> None:
     except QuotaExceededError as e:
         # Graceful operational fallback: notify recipients but do not fail the workflow.
         alert_subject = f"{subject_prefix} — quota alert — {today_iso_utc()}"
-        alert_html = build_quota_alert_html(subject_prefix, summarize_error(e))
-        send_email(alert_subject, alert_html, smtp_user, recipients, smtp_password)
-        print("OK: quota alert sent to recipients.")
+        if (cfg.get("email_v2") or {}).get("source_only_fallback", True) and candidates:
+            final_markdown = render_source_only_digest(cfg, candidates, rejected_candidates)
+            quality_diagnostics = evaluate_briefing_quality(final_markdown, citation_thresholds)
+            write_text_artifact("source_only_fallback.md", final_markdown)
+            write_text_artifact("final_briefing.md", final_markdown)
+            write_json_artifact("quality_report.json", quality_report(final_markdown, quality_diagnostics, candidates, rejected_candidates, "source_only"))
+            html = markdown_to_html(final_markdown)
+            subject = f"{subject_prefix} - source-only digest - {today_iso_utc()}"
+            send_email(subject, html, smtp_user, recipients, smtp_password)
+            print("OK: source-only fallback digest sent to recipients.")
+        else:
+            alert_html = build_quota_alert_html(subject_prefix, summarize_error(e))
+            send_email(alert_subject, alert_html, smtp_user, recipients, smtp_password)
+            print("OK: quota alert sent to recipients.")
 
 
 

@@ -128,6 +128,80 @@
   "email": {
     "subject_prefix": "Public Sector Daily"
   },
+  "email_v2": {
+    "enabled": true,
+    "style": "newsroom_digest",
+    "max_stories": 4,
+    "suppressed_leads": 5,
+    "source_only_fallback": true,
+    "top_priority": "leadership_stakeholder_account_trigger"
+  },
+  "ranking": {
+    "leadership": 12,
+    "account_match": 10,
+    "official_source": 7,
+    "procurement_project": 6,
+    "theme_match": 4,
+    "regulatory": 1
+  },
+  "sources": [
+    {
+      "id": "fitko-news",
+      "label": "FITKO Aktuelles",
+      "type": "html_page",
+      "tier": "official",
+      "url": "https://www.fitko.de/aktuelles",
+      "enabled": true
+    },
+    {
+      "id": "bva-news",
+      "label": "Bundesverwaltungsamt Presse",
+      "type": "html_page",
+      "tier": "official",
+      "url": "https://www.bva.bund.de/DE/Service/Presse/presse_node.html",
+      "enabled": true
+    },
+    {
+      "id": "sachsen-news",
+      "label": "Sachsen Medienservice",
+      "type": "html_page",
+      "tier": "official",
+      "url": "https://www.medienservice.sachsen.de/medien/news",
+      "enabled": true
+    },
+    {
+      "id": "sachsen-anhalt-news",
+      "label": "Sachsen-Anhalt Presse",
+      "type": "html_page",
+      "tier": "official",
+      "url": "https://www.sachsen-anhalt.de/bs/pressemitteilungen",
+      "enabled": true
+    },
+    {
+      "id": "thueringen-news",
+      "label": "Thueringen Presse",
+      "type": "html_page",
+      "tier": "official",
+      "url": "https://thueringen.de/medien/medieninformationen",
+      "enabled": true
+    },
+    {
+      "id": "service-bund",
+      "label": "Service Bund Ausschreibungen",
+      "type": "procurement_search",
+      "tier": "official",
+      "url": "https://www.service.bund.de/Content/DE/Ausschreibungen/Suche/Formular.html",
+      "enabled": true
+    },
+    {
+      "id": "egovernment",
+      "label": "eGovernment Computing",
+      "type": "html_page",
+      "tier": "trade",
+      "url": "https://www.egovernment.de/",
+      "enabled": true
+    }
+  ],
   "model": {
     "preferred_models": [
       "gemini-2.5-flash",

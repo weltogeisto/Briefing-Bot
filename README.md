@@ -13,10 +13,12 @@ It uses the **Gemini API** with **Google Search grounding** to generate **cited*
 
 Reliability features in the current implementation:
 - preflight model check to fail fast on API key / quota issues before spending the main token budget
+- collector-first source discovery from configured public RSS/pages before Gemini writes the email
 - single-model execution based on your configured `preferred_models` list
-- automatic retry with a reduced token budget when quota pressure is detected
-- quota/rate-limit alert email fallback so runs do not fail silently
+- source-only digest fallback when Gemini quota/rate limits are hit after source candidates were collected
+- quota/rate-limit alert email fallback when generation is blocked and no source-only digest can be produced
 - configurable throttling between Gemini requests (`GEMINI_MIN_INTERVAL_SEC`)
+- GitHub Actions artifacts with candidate sources, rejected candidates, final markdown, and quality diagnostics
 - monthly keepalive workflow (`keepalive.yml`) that prevents GitHub from auto-disabling the schedule after 60 days of repo inactivity
 
 ---
@@ -71,6 +73,9 @@ Edit: `src/config.json`
 - `themes`: your 3–5 strategic themes
 - `regulatory_items`: optional list of key regs/dates to always track
 - `email.subject_prefix`: subject prefix for both briefing and operational fallback emails
+- `sources`: public RSS/pages/procurement/trade sources collected before Gemini is called
+- `ranking`: scoring weights for leadership, account, official-source, procurement, theme, and regulatory signals
+- `email_v2`: newsroom digest settings, max stories, suppressed leads, and source-only fallback behavior
 
 ### Model + output control
 
@@ -113,9 +118,17 @@ If Gemini API quota or rate limits are exhausted, the workflow sends a short **q
 
 Operational sequence:
 1. optional preflight check on the first configured model (`SKIP_PREFLIGHT=1` disables it)
-2. generation with the configured model list (recommended single model: `gemini-2.5-flash`)
-3. retry with reduced token budget if quota pressure appears
-4. fallback alert email if generation remains blocked
+2. source collector fetches configured public sources and writes candidate/rejected artifacts
+3. Gemini receives only the structured candidate list and formats a newsroom-style digest
+4. if Gemini quota/rate limits block generation, a source-only digest is sent from collected candidates
+5. if collection produces no usable candidates, a quality alert is sent instead of fabricated content
+
+GitHub Actions uploads quiet debug artifacts after each run:
+- `candidate_signals.json`
+- `rejected_candidates.json`
+- `final_briefing.md`
+- `quality_report.json`
+- `source_only_fallback.md` when fallback mode is used
 
 What to check if this happens repeatedly:
 - Enable billing for your Google AI Studio project.
