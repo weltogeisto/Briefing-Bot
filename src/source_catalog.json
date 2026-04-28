@@ -1,0 +1,60 @@
+{
+  "version": 1,
+  "groups": [
+    {
+      "id": "procurement",
+      "label": "Procurement, tenders, and awards",
+      "search_guidance": "Search first for new tenders, contract awards, framework agreements, budget releases, and award notices. Treat procurement portals and official award notices as primary evidence.",
+      "domains": [
+        "evergabe-online.de",
+        "bund.de",
+        "service.bund.de",
+        "ted.europa.eu",
+        "deutsche-evergabe.de"
+      ]
+    },
+    {
+      "id": "official_accounts",
+      "label": "Official ministries, agencies, and IT providers",
+      "search_guidance": "Search official account sites for press releases, programme updates, strategy documents, CIO/CDO announcements, IT service-provider milestones, and budget decisions.",
+      "domains": [
+        "fitko.de",
+        "bva.bund.de",
+        "sachsen.de",
+        "sachsen-anhalt.de",
+        "thueringen.de",
+        "niedersachsen.de",
+        "it.niedersachsen.de",
+        "sid.sachsen.de",
+        "dataport.de"
+      ]
+    },
+    {
+      "id": "policy_regulatory",
+      "label": "Policy and regulatory sources",
+      "search_guidance": "Search policy and regulatory sources for implementation deadlines, AI Act guidance, digital sovereignty programmes, cloud policy, and federal/state digitalisation initiatives.",
+      "domains": [
+        "bmi.bund.de",
+        "cio.bund.de",
+        "bundesregierung.de",
+        "digital-strategy.ec.europa.eu",
+        "commission.europa.eu",
+        "eur-lex.europa.eu"
+      ]
+    },
+    {
+      "id": "cyber_ai_cloud_trade",
+      "label": "Cyber, AI, cloud, and public-sector trade sources",
+      "search_guidance": "Search specialist and trade sources for leads on cyber, AI, cloud, OZG, sovereignty, and public-sector IT developments. Use these as leads and verify factual claims against official sources before inclusion.",
+      "domains": [
+        "bsi.bund.de",
+        "egovernment.de",
+        "kommune21.de",
+        "heise.de",
+        "cloudcomputing-insider.de",
+        "security-insider.de",
+        "public-it.net"
+      ]
+    }
+  ]
+}

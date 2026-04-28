@@ -151,7 +151,7 @@
   },
   "entity_coverage": {
     "entity_universe_path": "entity_universe.json",
-    "spotlight_entities_per_day": 5,
+    "spotlight_entities_per_day": 8,
     "always_include": [
       "FITKO (IT-Planungsrat)",
       "BVA (Bundesverwaltungsamt)",
