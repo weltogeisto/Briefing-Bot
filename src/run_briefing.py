@@ -15,6 +15,9 @@ import smtplib
 import ssl
 import re
 import time
+import html as html_lib
+import sys
+from pathlib import Path
 from urllib.parse import urlparse
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
@@ -23,6 +26,12 @@ from typing import List, Dict, Any, Optional, Set
 from google import genai
 from google.genai import types
 import markdown as md
+
+try:
+    from source_collection import collect_source_candidates
+except ModuleNotFoundError:
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    from source_collection import collect_source_candidates
 
 
 # -----------------------------
@@ -59,6 +68,13 @@ def load_entity_universe(cfg: dict) -> dict:
         with open(path, "r", encoding="utf-8") as f:
             return json.load(f)
     return {"states": {}}
+
+
+def load_source_catalog() -> dict:
+    try:
+        return load_json("source_catalog.json")
+    except FileNotFoundError:
+        return {"version": 0, "groups": []}
 
 
 def dedup_keep_order(items: List[str]) -> List[str]:
@@ -207,6 +223,137 @@ def pick_spotlight_entities(cfg: dict, universe: dict, iso_date: str) -> List[st
     return out
 
 
+def normalize_source_groups(catalog: dict) -> List[Dict[str, Any]]:
+    groups: List[Dict[str, Any]] = []
+    for group in (catalog or {}).get("groups", []) or []:
+        if not isinstance(group, dict):
+            continue
+        group_id = str(group.get("id", "")).strip()
+        label = str(group.get("label", "")).strip()
+        guidance = str(group.get("search_guidance", "")).strip()
+        domains = dedup_keep_order([
+            d for d in (group.get("domains", []) or [])
+            if isinstance(d, str) and d.strip()
+        ])
+        if group_id and label and guidance and domains:
+            groups.append({
+                "id": group_id,
+                "label": label,
+                "search_guidance": guidance,
+                "domains": domains,
+            })
+    return groups
+
+
+def build_discovery_plan(cfg: dict, universe: dict, source_catalog: dict, iso_date: str) -> Dict[str, Any]:
+    priority_entities = dedup_keep_order([
+        a.get("name", "")
+        for a in (cfg.get("accounts", []) or [])
+        if isinstance(a, dict)
+    ])
+    priority_set = set(priority_entities)
+    spotlight_entities = [
+        entity
+        for entity in pick_spotlight_entities(cfg, universe, iso_date)
+        if entity not in priority_set
+    ]
+
+    return {
+        "priority_entities": priority_entities,
+        "spotlight_entities": spotlight_entities,
+        "source_groups": normalize_source_groups(source_catalog),
+    }
+
+
+def format_source_groups_for_prompt(source_groups: List[Dict[str, Any]]) -> str:
+    if not source_groups:
+        return "- No structured source groups configured."
+
+    lines: List[str] = []
+    for group in source_groups:
+        domains = ", ".join(group["domains"])
+        lines.append(
+            f"- {group['id']} ({group['label']}): {group['search_guidance']} "
+            f"Priority domains: {domains}"
+        )
+    return "\n".join(lines)
+
+
+def evaluate_briefing_quality(markdown_text: str, thresholds: Dict[str, int]) -> Dict[str, Any]:
+    text = markdown_text or ""
+    legacy_markers = [
+        "TODAY'S TOP PRIORITY",
+        "## 1. VERIFIED HARD SIGNALS",
+        "## 2. REGULATORY COUNTDOWN",
+        "## 3. STRATEGIC THEME",
+        "## 4. PRIORITIZED ACTION ITEMS",
+        "## 5. CALENDAR: KEY DATES AHEAD",
+        "## 6. GARTNER CAPABILITY QUICK REFERENCE",
+    ]
+    newsroom_markers = [
+        "TODAY'S TOP PRIORITY",
+        "## 1. NEWSROOM DIGEST",
+        "## 2. BD ACTIONS",
+        "## 3. NO-SIGNAL / SUPPRESSED LEADS",
+        "## 4. QUALITY FOOTER",
+    ]
+    missing_legacy = [marker for marker in legacy_markers if marker not in text]
+    missing_newsroom = [marker for marker in newsroom_markers if marker not in text]
+    missing_sections = [] if not missing_legacy or not missing_newsroom else missing_newsroom
+
+    placeholder_pattern = re.compile(
+        r"\[(Entity|Date|Month Year|Specific Date|Event|Description|Target|Action|"
+        r"Quarter|MAJOR DEADLINE|Signal Title|Source domains|DATE)\]",
+        re.IGNORECASE,
+    )
+    unresolved_placeholders = placeholder_pattern.findall(text)
+    source_rows = re.findall(r"^.*\*\*Source\*\*.*$", text, flags=re.IGNORECASE | re.MULTILINE)
+    source_row_count = len(source_rows)
+    citation_stats = meets_citation_threshold(text, thresholds)
+    weak_source_pattern = re.compile(
+        r"no single recent press release|not yet public|general information|ongoing initiatives|"
+        r"public statements|consistent with .*mandate",
+        re.IGNORECASE,
+    )
+    weak_source_rows = [row for row in source_rows if weak_source_pattern.search(row)]
+
+    warning_codes: List[str] = []
+    blocking_codes: List[str] = []
+    if not text.strip():
+        warning_codes.append("empty_output")
+        blocking_codes.append("empty_output")
+    if missing_sections:
+        warning_codes.append("missing_sections")
+        blocking_codes.append("missing_sections")
+    if unresolved_placeholders:
+        warning_codes.append("unresolved_placeholders")
+        blocking_codes.append("unresolved_placeholders")
+    if source_row_count == 0:
+        warning_codes.append("missing_source_rows")
+        blocking_codes.append("missing_source_rows")
+    if weak_source_rows:
+        warning_codes.append("weak_source_language")
+        blocking_codes.append("weak_source_language")
+    if citation_stats["unique_url_count"] == 0 or citation_stats["unique_domain_count"] == 0:
+        warning_codes.append("citation_threshold")
+        blocking_codes.append("citation_threshold")
+    elif not citation_stats["threshold_passed"]:
+        warning_codes.append("citation_threshold")
+
+    return {
+        "should_warn": bool(warning_codes),
+        "should_block": bool(blocking_codes),
+        "warning_codes": warning_codes,
+        "blocking_codes": blocking_codes,
+        "missing_sections": missing_sections,
+        "unresolved_placeholder_count": len(unresolved_placeholders),
+        "source_row_count": source_row_count,
+        "source_domain_count": citation_stats["unique_domain_count"],
+        "source_link_count": citation_stats["unique_url_count"],
+        "weak_source_row_count": len(weak_source_rows),
+    }
+
+
 # -----------------------------
 # System Instruction & Prompt
 # -----------------------------
@@ -234,7 +381,7 @@ CRITICAL RULES (MUST FOLLOW):
 3. DO NOT invent or hallucinate: tenders, budgets, deadlines, leadership changes, projects, or initiatives.
 4. DO NOT use your training data for facts - ALWAYS search for current information.
 5. Focus on information from the LAST 72 HOURS. Older information should be clearly marked with its date.
-6. DO NOT paste raw URLs in the text - citations are handled automatically via grounding metadata.
+6. Use markdown links for sources, for example [source name](https://example.gov/page). Do not paste bare raw URLs.
 7. Keep personal data minimal: job titles/roles are OK, but no private emails or phone numbers.
 8. Brevity is mandatory: target {target_min}-{target_max} words total, never exceed {max_words} words.
 9. Enforce section limits: Top Priority <= {top_priority_limit} words; each Hard Signal block (including table text) <= {signal_limit} words; Regulatory Countdown section <= {regulatory_limit} words.
@@ -242,7 +389,8 @@ CRITICAL RULES (MUST FOLLOW):
 ZERO-TOLERANCE FOR FABRICATION:
 - If Google Search returns no relevant recent results for an entity or topic, DO NOT fill in with generic or outdated information. Simply skip that entity.
 - If fewer than 3 verified hard signals exist this week, include only what you found. Writing "No verified signals in this period" for a section is preferable to inventing content.
-- Every date, budget figure, contract value, and organizational name MUST come from a search result. If you cannot cite it, do not include it.
+- Every date, budget figure, contract value, and organizational name MUST come from a search result. If you cannot cite it with a markdown link to the source, do not include it.
+- Each hard signal **Source** row MUST include at least one markdown link to an official or primary source. Weak phrases like "general information", "ongoing initiatives", "not yet public", or "no single recent press release found" are not acceptable sources for a verified hard signal.
 
 ITEM SCORING RUBRIC (APPLY BEFORE INCLUDING ANY CANDIDATE ITEM):
 - Score each candidate item on a 0-5 scale for:
@@ -283,7 +431,7 @@ COMPACT OUTPUT RULES:
 | Element | Details |
 |---------|---------|
 | **Signal** | [What happened - be specific with numbers, dates, entities] |
-| **Source** | [Official source and date] |
+| **Source** | [Official source and date](https://official-source.example/path) |
 | **Advisory Opening** | [How to position - specific service/capability to offer, pain point to address] |
 | **Gartner Asset** | [Relevant Gartner research, frameworks, or tools to reference] |
 | **Decision-Oriented Outcome** | [Concrete decision this enables now, e.g., who to contact this week and why] |
@@ -388,8 +536,11 @@ def build_prompt(cfg: dict, brevity: Dict[str, Any]) -> str:
     prepared_for = cfg.get("prepared_for", "[Your Name]")
 
     universe = load_entity_universe(cfg)
-    spotlight = pick_spotlight_entities(cfg, universe, today)
+    source_catalog = load_source_catalog()
+    discovery_plan = build_discovery_plan(cfg, universe, source_catalog, today)
+    spotlight = discovery_plan["spotlight_entities"]
     spotlight_str = ", ".join(spotlight) if spotlight else "(none)"
+    source_section = format_source_groups_for_prompt(discovery_plan["source_groups"])
 
     brand_title = (cfg.get("brand") or {}).get("title", "GARTNER PUBLIC SECTOR DAILY")
     brand_subtitle = (cfg.get("brand") or {}).get("subtitle", "New Business Intelligence Briefing")
@@ -443,7 +594,13 @@ def build_prompt(cfg: dict, brevity: Dict[str, Any]) -> str:
 **Territory:** {territory}
 **Briefing mode:** {briefing_mode}
 
-STEP 1 — SEARCH GOOGLE NOW. Search for each priority entity below individually. Look for:
+STEP 1 — BALANCED SOURCE DISCOVERY. Search these source groups before entity-by-entity searches:
+{source_section}
+
+Evidence rule: use official sources as factual authority. Use trade sources as leads only, and verify any factual claim against official sources before inclusion.
+Source-link rule: every hard-signal **Source** row must include at least one markdown link to the official or primary source. If no source link is available, write "No verified signals in this period" instead of filling the section with generic background.
+
+STEP 2 — SEARCH GOOGLE NOW. Search for each priority entity below individually. Look for:
 - Official press releases, procurement notices, tender announcements from the last {lookback} hours
 - Budget decisions, policy announcements, leadership changes
 - IT/digital strategy updates, contract awards, project milestones
@@ -455,14 +612,16 @@ PRIORITY ENTITIES TO RESEARCH:
 ADDITIONAL SPOTLIGHT ENTITIES (search only if time permits after priority entities):
 {spotlight_str}
 
-STEP 2 — REGULATORY COUNTDOWN. Verify these items and calculate T-minus days from today {today}:
+STEP 3 — REGULATORY COUNTDOWN. Verify these items and calculate T-minus days from today {today}:
 {reg_section}
+Use official regulatory sources for this section. For the EU AI Act, verify dates against the European Commission AI Act page: [European Commission AI Act](https://digital-strategy.ec.europa.eu/en/policies/regulatory-framework-ai).
 
-STEP 3 — STRATEGIC THEME. Pick ONE theme based on which has the most newsworthy VERIFIED developments right now:
+STEP 4 — STRATEGIC THEME. Pick ONE theme based on which has the most newsworthy VERIFIED developments right now:
 {theme_section}
 
-STEP 4 — GENERATE BRIEFING. Follow the exact format from your system instructions.
-- Only include signals backed by sources found in Step 1.
+STEP 5 — GENERATE BRIEFING. Follow the exact format from your system instructions.
+- Only include signals backed by sources found in Steps 1 and 2.
+- Every hard-signal Source row must contain a markdown link. Do not use source descriptions without links as evidence.
 - Section 6 (Capability Quick Reference) is a static reference table — fill it using the themes below without searching:
 {chr(10).join('- ' + c for c in capability_themes)}
 - If you found fewer than 3 hard signals, include only what you verified. Quality over quantity.
@@ -473,6 +632,159 @@ START THE OUTPUT WITH:
 {brand_subtitle}
 
 Date: {today} ({day_of_week}) | Prepared for: {prepared_for} | Territory: {territory}"""
+
+
+def build_newsroom_prompt(cfg: dict, candidates: List[Dict[str, Any]], rejected: List[Dict[str, Any]]) -> str:
+    today = today_iso_utc()
+    territory = ", ".join(cfg.get("territory", [])) or "Germany Public Sector"
+    settings = cfg.get("email_v2", {}) or {}
+    max_stories = int(settings.get("max_stories", 4))
+    candidate_payload = json.dumps(candidates[: max(max_stories * 3, 8)], ensure_ascii=False, indent=2)
+    rejected_payload = json.dumps(rejected[: int(settings.get("suppressed_leads", 5))], ensure_ascii=False, indent=2)
+    return f"""Create a fast-scan newsroom-style public sector BD digest for {territory}.
+
+Date: {today}
+
+Use ONLY these pre-collected candidate source records. Do not invent additional facts.
+Every story must include markdown source links from candidate.url.
+
+Ranking rules:
+- Top story must be a leadership/stakeholder or named-account opportunity trigger when available.
+- Procurement/project triggers can be included but should not outrank a strong stakeholder-access signal.
+- EU AI Act or regulatory items are compact side notes unless tied to a named account action.
+- If a configured account has no usable evidence, say it was suppressed/no-signal; do not fill with generic background.
+
+Output markdown in this structure:
+
+TODAY'S TOP PRIORITY
+
+## 1. NEWSROOM DIGEST
+
+### Top Story
+- **What changed:** ...
+- **Why it matters:** ...
+- **BD move:** ...
+- **Source:** [source title](https://source-url)
+
+### Other Verified Stories
+Use 1-3 short story bullets, each with **Source:** markdown links.
+
+## 2. BD ACTIONS
+
+| Priority | Account | Trigger | Next move | Evidence |
+|----------|---------|---------|-----------|----------|
+
+## 3. NO-SIGNAL / SUPPRESSED LEADS
+
+List important rejected or no-signal items with reason, not speculation.
+
+## 4. QUALITY FOOTER
+
+Include candidate count, source domains, rejected count, and fallback mode.
+
+Candidate source records:
+{candidate_payload}
+
+Rejected candidate records:
+{rejected_payload}
+"""
+
+
+def source_link(candidate: Dict[str, Any]) -> str:
+    title = candidate.get("title") or candidate.get("source_label") or candidate.get("domain") or "source"
+    return f"[{title}]({candidate.get('url')})"
+
+
+def render_source_only_digest(cfg: dict, candidates: List[Dict[str, Any]], rejected: List[Dict[str, Any]]) -> str:
+    today = today_iso_utc()
+    settings = cfg.get("email_v2", {}) or {}
+    max_stories = int(settings.get("max_stories", 4))
+    selected = candidates[:max_stories]
+    domains = sorted({c.get("domain", "") for c in candidates if c.get("domain")})
+    lines = [
+        "TODAY'S TOP PRIORITY",
+        "",
+        "Source-only fallback: Gemini was unavailable, so this digest contains collected source candidates without model-written analysis.",
+        "",
+        "## 1. NEWSROOM DIGEST",
+        "",
+    ]
+    if selected:
+        top = selected[0]
+        lines.extend([
+            "### Top Story",
+            f"- **What changed:** {top.get('title')}",
+            f"- **Why it matters:** Candidate matched {', '.join(top.get('score_reasons', []) or ['configured source'])}.",
+            f"- **BD move:** Review the source and decide whether this creates a named-account outreach angle.",
+            f"- **Source:** {source_link(top)}",
+            "",
+            "### Other Verified Stories",
+        ])
+        for candidate in selected[1:]:
+            accounts = ", ".join(candidate.get("account_matches", []) or ["unmapped account"])
+            lines.append(f"- **{accounts}:** {candidate.get('title')} **Source:** {source_link(candidate)}")
+    else:
+        lines.append("No verified signals in this period.")
+    lines.extend([
+        "",
+        "## 2. BD ACTIONS",
+        "",
+        "| Priority | Account | Trigger | Next move | Evidence |",
+        "|----------|---------|---------|-----------|----------|",
+    ])
+    for idx, candidate in enumerate(selected, start=1):
+        priority = "P1" if idx == 1 else "P2"
+        account = ", ".join(candidate.get("account_matches", []) or ["Review"])
+        trigger = ", ".join(candidate.get("score_reasons", []) or ["source_candidate"])
+        lines.append(f"| **{priority}** | {account} | {trigger} | Review source and qualify outreach. | {source_link(candidate)} |")
+    lines.extend([
+        "",
+        "## 3. NO-SIGNAL / SUPPRESSED LEADS",
+        "",
+    ])
+    for item in rejected[: int(settings.get("suppressed_leads", 5))]:
+        label = item.get("title") or item.get("url") or item.get("source_id") or "candidate"
+        lines.append(f"- {label}: {item.get('rejection_reason', 'below threshold')}")
+    if not rejected:
+        lines.append("- No rejected candidates recorded.")
+    lines.extend([
+        "",
+        "## 4. QUALITY FOOTER",
+        "",
+        f"- Date: {today}",
+        f"- Candidate count: {len(candidates)}",
+        f"- Source domains: {', '.join(domains) if domains else 'none'}",
+        f"- Rejected count: {len(rejected)}",
+        "- Fallback mode: source_only",
+    ])
+    return "\n".join(lines)
+
+
+def artifacts_dir() -> Path:
+    path = Path(os.getenv("BRIEFING_ARTIFACT_DIR", "artifacts"))
+    path.mkdir(parents=True, exist_ok=True)
+    return path
+
+
+def write_json_artifact(name: str, payload: Any) -> None:
+    path = artifacts_dir() / name
+    path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def write_text_artifact(name: str, text: str) -> None:
+    path = artifacts_dir() / name
+    path.write_text(text or "", encoding="utf-8")
+
+
+def quality_report(markdown_text: str, diagnostics: Dict[str, Any], candidates: List[Dict[str, Any]], rejected: List[Dict[str, Any]], fallback_mode: str) -> Dict[str, Any]:
+    return {
+        "diagnostics": diagnostics,
+        "candidate_count": len(candidates),
+        "rejected_count": len(rejected),
+        "fallback_mode": fallback_mode,
+        "links": extract_markdown_links(markdown_text),
+        "generated_at": dt.datetime.utcnow().replace(microsecond=0).isoformat() + "Z",
+    }
 
 
 # -----------------------------
@@ -754,6 +1066,31 @@ def build_length_cap_alert_html(subject_prefix: str, diagnostics: Dict[str, Any]
 """
 
 
+def build_quality_alert_html(subject_prefix: str, diagnostics: Dict[str, Any]) -> str:
+    now_utc = dt.datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC")
+    blocking_codes = ", ".join(diagnostics.get("blocking_codes") or ["unknown"])
+    warning_codes = ", ".join(diagnostics.get("warning_codes") or [])
+    missing_sections = ", ".join(diagnostics.get("missing_sections") or []) or "none"
+    return f"""<html>
+  <body style="font-family: Arial, Helvetica, sans-serif; line-height: 1.45;">
+    <h2>{html_lib.escape(subject_prefix)} - quality alert</h2>
+    <p>The daily briefing was suppressed because generated content did not meet evidence-quality gates.</p>
+    <ul>
+      <li><strong>Time:</strong> {html_lib.escape(now_utc)}</li>
+      <li><strong>Blocking diagnostics:</strong> {html_lib.escape(blocking_codes)}</li>
+      <li><strong>Warning diagnostics:</strong> {html_lib.escape(warning_codes)}</li>
+      <li><strong>Source links:</strong> {int(diagnostics.get('source_link_count', 0))}</li>
+      <li><strong>Source domains:</strong> {int(diagnostics.get('source_domain_count', 0))}</li>
+      <li><strong>Source rows:</strong> {int(diagnostics.get('source_row_count', 0))}</li>
+      <li><strong>Weak source rows:</strong> {int(diagnostics.get('weak_source_row_count', 0))}</li>
+      <li><strong>Missing sections:</strong> {html_lib.escape(missing_sections)}</li>
+    </ul>
+    <p>Action needed: review the workflow logs and source results. The bot should send a briefing only when hard signals include explicit markdown links to official or primary sources.</p>
+  </body>
+</html>
+"""
+
+
 
 # -----------------------------
 # Main
@@ -773,8 +1110,48 @@ def main() -> None:
     model_cfg = cfg.get("model") or {}
     brevity = model_cfg.get("brevity", {}) or {}
 
-    prompt = build_prompt(cfg, brevity)
     citation_thresholds = get_citation_thresholds(cfg)
+    discovery_plan = build_discovery_plan(
+        cfg,
+        load_entity_universe(cfg),
+        load_source_catalog(),
+        today_iso_utc(),
+    )
+    print(
+        "INFO: Discovery plan "
+        f"source_groups={len(discovery_plan['source_groups'])} "
+        f"priority_entities={len(discovery_plan['priority_entities'])} "
+        f"spotlight_entities={len(discovery_plan['spotlight_entities'])}"
+    )
+    candidates, rejected_candidates = collect_source_candidates(cfg)
+    write_json_artifact("candidate_signals.json", candidates)
+    write_json_artifact("rejected_candidates.json", rejected_candidates)
+    print(
+        "INFO: Source collector "
+        f"candidates={len(candidates)} rejected={len(rejected_candidates)}"
+    )
+    subject_prefix = (cfg.get("email") or {}).get("subject_prefix", "Public Sector Intelligence Briefing")
+    if not candidates:
+        diagnostics = {
+            "blocking_codes": ["no_collected_candidates"],
+            "warning_codes": ["no_collected_candidates"],
+            "source_link_count": 0,
+            "source_domain_count": 0,
+            "source_row_count": 0,
+            "weak_source_row_count": 0,
+            "missing_sections": [],
+        }
+        write_json_artifact("quality_report.json", quality_report("", diagnostics, candidates, rejected_candidates, "none"))
+        alert_subject = f"{subject_prefix} - quality alert - {today_iso_utc()}"
+        alert_html = build_quality_alert_html(subject_prefix, diagnostics)
+        send_email(alert_subject, alert_html, smtp_user, recipients, smtp_password)
+        print("OK: quality alert sent because no source candidates were collected.")
+        return
+
+    if (cfg.get("email_v2") or {}).get("enabled", False):
+        prompt = build_newsroom_prompt(cfg, candidates, rejected_candidates)
+    else:
+        prompt = build_prompt(cfg, brevity)
 
     # Create client with explicit API key (google-genai SDK looks for GOOGLE_API_KEY by default)
     api_key = require_env("GEMINI_API_KEY")
@@ -806,15 +1183,6 @@ def main() -> None:
         max_output_tokens=base_max_tokens,
     )
 
-    reduced_max_tokens = max(1200, int(base_max_tokens * 0.65))
-    reduced_cfg = types.GenerateContentConfig(
-        system_instruction=system_instruction,
-        tools=[grounding_tool],
-        temperature=base_temperature,
-        top_p=0.95,
-        max_output_tokens=min(reduced_max_tokens, base_max_tokens),
-    )
-
     compression_cfg = types.GenerateContentConfig(
         system_instruction="You are an expert editor. Follow compression instructions exactly.",
         temperature=0.0,
@@ -822,7 +1190,6 @@ def main() -> None:
         max_output_tokens=base_max_tokens,
     )
 
-    subject_prefix = (cfg.get("email") or {}).get("subject_prefix", "Public Sector Intelligence Briefing")
     skip_preflight = os.getenv("SKIP_PREFLIGHT", "").strip().lower() in {"1", "true", "yes"}
 
     try:
@@ -832,11 +1199,7 @@ def main() -> None:
             # Preflight to classify common operational failures early.
             run_preflight_check(client, model_ids)
 
-        try:
-            response = generate_with_fallback(client, model_ids, prompt, primary_cfg)
-        except QuotaExceededError:
-            print("WARN: Quota pressure detected, retrying with reduced token budget.")
-            response = generate_with_fallback(client, model_ids, prompt, reduced_cfg)
+        response = generate_with_fallback(client, model_ids, prompt, primary_cfg)
 
         initial_text = getattr(response, "text", "") or ""
         pre_citation_words = estimate_word_count(initial_text)
@@ -897,28 +1260,50 @@ def main() -> None:
             print(f"INFO: Briefing within word cap ({pre_citation_words} <= {max_words}); no compression needed.")
 
         quality = meets_citation_threshold(final_markdown, citation_thresholds)
+        quality_diagnostics = evaluate_briefing_quality(final_markdown, citation_thresholds)
         print(
             "INFO: Citation-quality check "
             f"links={quality['unique_url_count']}/{quality['min_links']} "
             f"domains={quality['unique_domain_count']}/{quality['min_domains']} "
             f"passed={quality['threshold_passed']}"
         )
+        if quality_diagnostics["should_warn"]:
+            print(
+                "WARN: Briefing quality diagnostics "
+                f"codes={','.join(quality_diagnostics['warning_codes'])} "
+                f"source_rows={quality_diagnostics['source_row_count']} "
+                f"domains={quality_diagnostics['source_domain_count']}"
+            )
 
-        # Citation quality check — informational only; never blocks sending.
+        # Severe evidence diagnostics block delivery; minor citation diagnostics remain informational.
+        if quality_diagnostics["should_block"]:
+            print(
+                "WARN: Briefing suppressed by quality gate "
+                f"blocking_codes={','.join(quality_diagnostics['blocking_codes'])}"
+            )
+            write_text_artifact("final_briefing.md", final_markdown)
+            write_json_artifact("quality_report.json", quality_report(final_markdown, quality_diagnostics, candidates, rejected_candidates, "gemini_blocked"))
+            alert_subject = f"{subject_prefix} - quality alert - {today_iso_utc()}"
+            alert_html = build_quality_alert_html(subject_prefix, quality_diagnostics)
+            send_email(alert_subject, alert_html, smtp_user, recipients, smtp_password)
+            print("OK: quality alert sent to recipients; briefing email suppressed.")
+            return
+
         # grounding_chunks are frequently empty due to a confirmed Gemini API platform
         # bug (open as of early 2026), so inline link counts are an unreliable signal.
         # We surface a footer note when links are sparse, but do NOT retry generation
         # (retrying burns quota and cannot fix a server-side metadata bug).
-        if not quality["threshold_passed"]:
+        if not quality["threshold_passed"] or quality_diagnostics["should_warn"]:
             print(
-                f"WARN: Citation quality below threshold "
+                f"WARN: Briefing quality warning "
                 f"(links={quality['unique_url_count']}/{quality['min_links']}, "
                 f"domains={quality['unique_domain_count']}/{quality['min_domains']}); "
-                "sending briefing with footer note (known API grounding metadata limitation)."
+                "sending briefing with footer note (non-blocking quality diagnostics)."
             )
             footer_note = (
-                f"⚠️ Grounding note: This briefing was generated with fewer verified source links than usual "
+                f"⚠️ Grounding and quality note: This briefing triggered non-blocking evidence diagnostics "
                 f"({quality['unique_url_count']} links, {quality['unique_domain_count']} domains). "
+                f"Quality diagnostics: {', '.join(quality_diagnostics['warning_codes']) or 'citation metadata limited'}. "
                 "Treat factual claims with extra scrutiny and verify independently. "
                 "(Citation metadata from the Google Search grounding API is occasionally unavailable "
                 "due to a known platform limitation — this does not indicate fabricated content.)"
@@ -927,6 +1312,8 @@ def main() -> None:
             footer_note = None
 
         html = markdown_to_html(final_markdown, footer_note=footer_note)
+        write_text_artifact("final_briefing.md", final_markdown)
+        write_json_artifact("quality_report.json", quality_report(final_markdown, quality_diagnostics, candidates, rejected_candidates, "gemini"))
 
         subject = f"{subject_prefix} — {today_iso_utc()}"
         send_email(subject, html, smtp_user, recipients, smtp_password)
@@ -934,9 +1321,20 @@ def main() -> None:
     except QuotaExceededError as e:
         # Graceful operational fallback: notify recipients but do not fail the workflow.
         alert_subject = f"{subject_prefix} — quota alert — {today_iso_utc()}"
-        alert_html = build_quota_alert_html(subject_prefix, summarize_error(e))
-        send_email(alert_subject, alert_html, smtp_user, recipients, smtp_password)
-        print("OK: quota alert sent to recipients.")
+        if (cfg.get("email_v2") or {}).get("source_only_fallback", True) and candidates:
+            final_markdown = render_source_only_digest(cfg, candidates, rejected_candidates)
+            quality_diagnostics = evaluate_briefing_quality(final_markdown, citation_thresholds)
+            write_text_artifact("source_only_fallback.md", final_markdown)
+            write_text_artifact("final_briefing.md", final_markdown)
+            write_json_artifact("quality_report.json", quality_report(final_markdown, quality_diagnostics, candidates, rejected_candidates, "source_only"))
+            html = markdown_to_html(final_markdown)
+            subject = f"{subject_prefix} - source-only digest - {today_iso_utc()}"
+            send_email(subject, html, smtp_user, recipients, smtp_password)
+            print("OK: source-only fallback digest sent to recipients.")
+        else:
+            alert_html = build_quota_alert_html(subject_prefix, summarize_error(e))
+            send_email(alert_subject, alert_html, smtp_user, recipients, smtp_password)
+            print("OK: quota alert sent to recipients.")
 
 
 

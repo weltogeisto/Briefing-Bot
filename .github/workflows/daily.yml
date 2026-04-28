@@ -48,3 +48,11 @@ jobs:
           SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
         run: |
           python src/run_briefing.py
+
+      - name: Upload briefing artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: briefing-run-${{ github.run_id }}
+          path: artifacts/
+          if-no-files-found: ignore
