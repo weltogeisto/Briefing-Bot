@@ -335,6 +335,56 @@ Source: [Sachsen Digitalagentur](https://www.digitalagentur.sachsen.de/cop-ki-un
     assert result["source_domain_count"] == 3
 
 
+def test_newsroom_source_colon_rows_count_as_source_rows():
+    rb = load_run_briefing()
+    markdown = """TODAY'S TOP PRIORITY
+
+## 1. NEWSROOM DIGEST
+
+### Top Story
+- **What changed:** Sachsen named a new digital leadership contact.
+- **Why it matters:** Named-account stakeholder change creates an outreach trigger.
+- **BD move:** Review the source and qualify the account angle.
+- **Source:** [Sachsen official notice](https://www.sachsen.de/news/cio-leitung)
+
+## 2. BD ACTIONS
+
+| Priority | Account | Trigger | Next move | Evidence |
+|----------|---------|---------|-----------|----------|
+| **P1** | Freistaat Sachsen | leadership | Review source and qualify outreach. | [Sachsen official notice](https://www.sachsen.de/news/cio-leitung) |
+
+## 3. NO-SIGNAL / SUPPRESSED LEADS
+
+- No rejected candidates recorded.
+
+## 4. QUALITY FOOTER
+
+- Candidate count: 1
+- Source domains: sachsen.de
+- Rejected count: 0
+- Fallback mode: gemini
+"""
+
+    result = rb.evaluate_briefing_quality(markdown, {"min_links": 1, "min_domains": 1})
+
+    assert result["should_block"] is False
+    assert result["source_row_count"] == 1
+    assert "missing_source_rows" not in result["blocking_codes"]
+
+
+def test_source_only_digest_counts_rendered_source_colon_rows():
+    rb = load_run_briefing()
+    cfg = load_json("config.json")
+    markdown = rb.render_source_only_digest(cfg, [sample_candidate()], [])
+
+    result = rb.evaluate_briefing_quality(markdown, {"min_links": 1, "min_domains": 1})
+
+    assert result["should_block"] is False
+    assert result["source_row_count"] == 1
+    assert result["source_link_count"] == 1
+    assert result["source_domain_count"] == 1
+
+
 def test_main_sends_quality_alert_not_briefing_when_generated_text_has_no_links(monkeypatch):
     rb = load_run_briefing()
     bad_markdown = """PUBLIC SECTOR DAILY
