@@ -491,6 +491,49 @@ def test_main_sends_source_only_digest_after_rate_limit_when_candidates_exist(mo
     assert len(fake_models.calls) == 4
 
 
+def test_main_sends_source_only_digest_after_preflight_503_when_candidates_exist(monkeypatch):
+    rb = load_run_briefing()
+
+    class FakeModels:
+        def __init__(self):
+            self.calls = []
+
+        def generate_content(self, **kwargs):
+            self.calls.append(kwargs)
+            raise RuntimeError("503 UNAVAILABLE. This model is currently experiencing high demand.")
+
+        def list(self):
+            return []
+
+    fake_models = FakeModels()
+    fake_client = types.SimpleNamespace(models=fake_models)
+    sent = []
+
+    monkeypatch.setenv("GEMINI_API_KEY", "fake")
+    monkeypatch.setenv("RECIPIENT_EMAIL", "bd@example.com")
+    monkeypatch.setenv("SMTP_USER", "sender@example.com")
+    monkeypatch.setenv("SMTP_PASSWORD", "password")
+    monkeypatch.setenv("BRIEFING_ARTIFACT_DIR", str(ROOT / ".pytest-artifacts"))
+    monkeypatch.setattr(rb, "collect_source_candidates", lambda cfg: ([sample_candidate()], []))
+    monkeypatch.setattr(rb.genai, "Client", lambda api_key: fake_client)
+    monkeypatch.setattr(rb, "throttle_gemini_calls", lambda: None)
+    monkeypatch.setattr(rb, "today_iso_utc", lambda: "2026-04-28")
+    monkeypatch.setattr(
+        rb,
+        "send_email",
+        lambda subject, html, sender, recipients, smtp_password: sent.append(
+            {"subject": subject, "html": html, "recipients": recipients}
+        ),
+    )
+
+    rb.main()
+
+    assert len(sent) == 1
+    assert "source-only digest" in sent[0]["subject"].lower()
+    assert "Neue CIO Leitung fuer Sachsen digital ernannt" in sent[0]["html"]
+    assert len(fake_models.calls) == 1
+
+
 def test_newsroom_prompt_contains_only_structured_candidates_with_urls():
     rb = load_run_briefing()
     cfg = load_json("config.json")

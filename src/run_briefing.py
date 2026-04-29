@@ -936,7 +936,17 @@ def summarize_error(exc: Exception) -> str:
 
 def is_quota_error(exc: Exception) -> bool:
     msg = str(exc).lower()
-    markers = ["resource_exhausted", "429", "too many requests", "quota", "rate limit", "ratelimit"]
+    markers = [
+        "resource_exhausted",
+        "429",
+        "503",
+        "too many requests",
+        "quota",
+        "rate limit",
+        "ratelimit",
+        "unavailable",
+        "high demand",
+    ]
     return any(m in msg for m in markers)
 
 
