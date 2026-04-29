@@ -52,6 +52,14 @@ def load_json(name):
         return json.load(f)
 
 
+def load_source_collection():
+    spec = importlib.util.spec_from_file_location("source_collection", SRC / "source_collection.py")
+    module = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    spec.loader.exec_module(module)
+    return module
+
+
 def sample_candidate():
     return {
         "title": "Neue CIO Leitung fuer Sachsen digital ernannt",
@@ -99,6 +107,81 @@ def test_json_config_files_are_valid_and_source_catalog_has_balanced_groups():
         assert group["label"]
         assert group["search_guidance"]
         assert group["domains"]
+
+    source_ids = {source["id"] for source in config["sources"]}
+    rss_sources = [source for source in config["sources"] if source["type"] == "rss"]
+    assert len(config["sources"]) >= 20
+    assert len(rss_sources) >= 5
+    assert {
+        "sachsen-anhalt-ministerien-rss",
+        "sachsen-anhalt-mid-rss",
+        "kommune21-rss",
+        "egovernment-rss",
+        "behoerden-spiegel-rss",
+        "public-manager-rss",
+        "vitako-rss",
+        "govdigital-rss",
+    }.issubset(source_ids)
+    assert any(source["tier"] == "trade" and source["type"] == "rss" for source in config["sources"])
+
+
+def test_collector_rejects_official_items_without_material_relevance():
+    sc = load_source_collection()
+    config = load_json("config.json")
+    source = {
+        "id": "official-test",
+        "label": "Official Test",
+        "type": "rss",
+        "tier": "official",
+        "url": "https://example.gov/rss.xml",
+        "enabled": True,
+    }
+    config["sources"] = [source]
+    rss = """<?xml version="1.0"?>
+<rss><channel>
+  <item>
+    <title>Sommerfest im Ministerium</title>
+    <link>https://example.gov/sommerfest</link>
+    <description>Ein allgemeiner Termin ohne Digitalbezug.</description>
+  </item>
+  <item>
+    <title>Neue Cloud Plattform fuer Verwaltung startet</title>
+    <link>https://example.gov/cloud-plattform</link>
+    <description>Verwaltungsdigitalisierung und Plattformbetrieb fuer Behoerden.</description>
+  </item>
+</channel></rss>"""
+
+    candidates, rejected = sc.collect_source_candidates(config, fetcher=lambda url: rss)
+
+    assert [candidate["title"] for candidate in candidates] == ["Neue Cloud Plattform fuer Verwaltung startet"]
+    assert any(item.get("rejection_reason") == "below_relevance_threshold" for item in rejected)
+
+
+def test_collector_does_not_treat_beauftragte_as_procurement_auftrag():
+    sc = load_source_collection()
+    config = load_json("config.json")
+    source = {
+        "id": "official-test",
+        "label": "Official Test",
+        "type": "rss",
+        "tier": "official",
+        "url": "https://example.gov/rss.xml",
+        "enabled": True,
+    }
+    config["sources"] = [source]
+    rss = """<?xml version="1.0"?>
+<rss><channel>
+  <item>
+    <title>Sachsens Datenschutzbeauftragte stellt Jahresbericht vor</title>
+    <link>https://example.gov/datenschutzbericht</link>
+    <description>Bericht der Datenschutzbeauftragten.</description>
+  </item>
+</channel></rss>"""
+
+    candidates, rejected = sc.collect_source_candidates(config, fetcher=lambda url: rss)
+
+    assert candidates == []
+    assert any(item.get("rejection_reason") == "below_relevance_threshold" for item in rejected)
 
 
 def test_discovery_plan_uses_broader_spotlight_and_deduplicates_priority_accounts():
@@ -250,6 +333,56 @@ Source: [Sachsen Digitalagentur](https://www.digitalagentur.sachsen.de/cop-ki-un
     assert result["should_block"] is False
     assert result["source_link_count"] == 3
     assert result["source_domain_count"] == 3
+
+
+def test_newsroom_source_colon_rows_count_as_source_rows():
+    rb = load_run_briefing()
+    markdown = """TODAY'S TOP PRIORITY
+
+## 1. NEWSROOM DIGEST
+
+### Top Story
+- **What changed:** Sachsen named a new digital leadership contact.
+- **Why it matters:** Named-account stakeholder change creates an outreach trigger.
+- **BD move:** Review the source and qualify the account angle.
+- **Source:** [Sachsen official notice](https://www.sachsen.de/news/cio-leitung)
+
+## 2. BD ACTIONS
+
+| Priority | Account | Trigger | Next move | Evidence |
+|----------|---------|---------|-----------|----------|
+| **P1** | Freistaat Sachsen | leadership | Review source and qualify outreach. | [Sachsen official notice](https://www.sachsen.de/news/cio-leitung) |
+
+## 3. NO-SIGNAL / SUPPRESSED LEADS
+
+- No rejected candidates recorded.
+
+## 4. QUALITY FOOTER
+
+- Candidate count: 1
+- Source domains: sachsen.de
+- Rejected count: 0
+- Fallback mode: gemini
+"""
+
+    result = rb.evaluate_briefing_quality(markdown, {"min_links": 1, "min_domains": 1})
+
+    assert result["should_block"] is False
+    assert result["source_row_count"] == 1
+    assert "missing_source_rows" not in result["blocking_codes"]
+
+
+def test_source_only_digest_counts_rendered_source_colon_rows():
+    rb = load_run_briefing()
+    cfg = load_json("config.json")
+    markdown = rb.render_source_only_digest(cfg, [sample_candidate()], [])
+
+    result = rb.evaluate_briefing_quality(markdown, {"min_links": 1, "min_domains": 1})
+
+    assert result["should_block"] is False
+    assert result["source_row_count"] == 1
+    assert result["source_link_count"] == 1
+    assert result["source_domain_count"] == 1
 
 
 def test_main_sends_quality_alert_not_briefing_when_generated_text_has_no_links(monkeypatch):

@@ -307,7 +307,7 @@ def evaluate_briefing_quality(markdown_text: str, thresholds: Dict[str, int]) ->
         re.IGNORECASE,
     )
     unresolved_placeholders = placeholder_pattern.findall(text)
-    source_rows = re.findall(r"^.*\*\*Source\*\*.*$", text, flags=re.IGNORECASE | re.MULTILINE)
+    source_rows = re.findall(r"^.*\*\*Source(?::)?\*\*:?.*$", text, flags=re.IGNORECASE | re.MULTILINE)
     source_row_count = len(source_rows)
     citation_stats = meets_citation_threshold(text, thresholds)
     weak_source_pattern = re.compile(

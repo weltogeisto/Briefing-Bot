@@ -1,172 +1,217 @@
-# 🇩🇪 Public Sector Intelligence Briefing — Gemini (Grounded) + GitHub Actions
+# Public Sector Daily Briefing Bot
 
-This repo sends you a **daily email** that matches the structure of your **Public Sector Intelligence Briefing** template:
-- ⚡ Today’s Top Priority
-- Target-account intelligence (FITKO, BVA, Saxony, Sachsen‑Anhalt, Thüringen, Niedersachsen — configurable)
-- Regulatory countdown (e.g., EU AI Act dates — grounded & cited)
-- Strategic themes
-- Prioritized action items (P1/P2/P3 table)
-- Key dates ahead
-- Sources & methodology
+This repo sends a daily email briefing for German public sector business development. The current v2 flow is collector-first: it gathers public source candidates before Gemini writes anything, ranks them for BD relevance, and only sends a briefing when the evidence is strong enough.
 
-It uses the **Gemini API** with **Google Search grounding** to generate **cited** insights, then emails the briefing via **Gmail SMTP**.
+The email is designed as a fast-scan newsroom digest:
 
-Reliability features in the current implementation:
-- preflight model check to fail fast on API key / quota issues before spending the main token budget
-- collector-first source discovery from configured public RSS/pages before Gemini writes the email
-- single-model execution based on your configured `preferred_models` list
-- source-only digest fallback when Gemini quota/rate limits are hit after source candidates were collected
-- quota/rate-limit alert email fallback when generation is blocked and no source-only digest can be produced
-- configurable throttling between Gemini requests (`GEMINI_MIN_INTERVAL_SEC`)
-- GitHub Actions artifacts with candidate sources, rejected candidates, final markdown, and quality diagnostics
-- monthly keepalive workflow (`keepalive.yml`) that prevents GitHub from auto-disabling the schedule after 60 days of repo inactivity
+- Top story: what changed, why it matters, BD move, evidence
+- 2-4 verified stories with source links
+- No-signal / suppressed leads when important accounts did not have enough evidence
+- Small quality footer with links, domains, rejected candidates, fallback mode, and cost posture
 
----
+The bot is intentionally low-cost and automation-only: GitHub Actions schedule, Gmail SMTP, public web/RSS sources, GitHub artifacts for audit, and Gemini used sparingly for synthesis.
 
-## 1) Add GitHub Actions secrets
+## Reliability Model
 
-In your repo: **Settings → Secrets and variables → Actions → New repository secret**
+The bot must not send unsupported "verified" claims. Weak evidence is a suppression condition, not a cosmetic warning.
+
+Current safeguards:
+
+- Pre-Gemini source collection from configured public sources
+- Structured candidate records before LLM synthesis
+- Ranking that favors leadership/stakeholder and named-account triggers over generic regulation
+- Hard quality gates for missing links, missing domains, unresolved placeholders, missing source rows, weak source language, or unsupported generated claims
+- Source-only digest fallback when Gemini quota/rate limits fail after usable candidates were collected
+- Operational alert when collection fails, no usable candidates exist, or the generated briefing fails evidence gates
+- GitHub Actions artifacts for candidate sources, rejected candidates, final markdown, and quality diagnostics
+- Monthly keepalive workflow to prevent GitHub from auto-disabling scheduled workflows after repo inactivity
+
+EU AI Act and other regulatory items are allowed, but they should normally appear as compact side notes. They should not become the top priority unless tied to a concrete named-account action.
+
+## Setup
+
+Add these GitHub Actions secrets in:
+
+`Settings -> Secrets and variables -> Actions -> New repository secret`
 
 | Secret | What it is |
 |---|---|
 | `GEMINI_API_KEY` | Google AI Studio API key |
-| `RECIPIENT_EMAIL` | Your inbox (comma-separated OK) |
-| `SMTP_USER` | Your Gmail address (sender) |
-| `SMTP_PASSWORD` | Gmail **App Password** (requires 2FA) |
+| `RECIPIENT_EMAIL` | Recipient inboxes, comma-separated if needed |
+| `SMTP_USER` | Gmail sender address |
+| `SMTP_PASSWORD` | Gmail app password, requires 2FA |
 
----
+The delivery path uses Gmail SMTP. Do not rename these secrets unless you also update the workflow and runtime code.
 
-## 2) Run it
-- Manual: **Actions → "Send Public Sector Briefing" → Run workflow**
-- Scheduled: daily cron in `.github/workflows/daily.yml`
+## Running
 
-Cron is UTC (`30 6 * * *` = 07:30 Berlin winter / 08:30 Berlin summer). Adjust if you want a
-fixed Berlin send time year-round.
+Manual run:
 
-### Preventing schedule auto-disable (important)
-GitHub automatically disables scheduled workflows after **60 days of repo inactivity**
-(no commits, issues, or PRs). For a bot repo where you never push code, this will happen.
-The included `keepalive.yml` workflow commits a tiny timestamp file on the 1st of each month
-to reset the inactivity clock. No action needed — it runs automatically once you push this repo.
+`Actions -> Send Public Sector Briefing -> Run workflow`
 
-If both workflows somehow get disabled simultaneously, go to **Actions → Keepalive → Run workflow**
-to manually re-enable, then both will resume on their normal schedules.
+Scheduled run:
 
-### Recommended repository settings (GitHub UI)
+`.github/workflows/daily.yml`
 
-This project is automation-only and does not require GitHub Pages.
+The cron is UTC. The default schedule is `30 6 * * *`, which is 07:30 Berlin in winter and 08:30 Berlin in summer.
 
-- Go to **Settings → Pages** and set **Build and deployment → Source = Deploy from a branch → None** (or equivalent disabled state).
-- If you intentionally use Pages in your fork, keep a valid branch/folder pair and avoid workflow triggers that can recursively re-trigger each other.
-- In **Actions**, this repo should only need **Send Public Sector Briefing** for normal operation.
+The repo also includes `.github/workflows/keepalive.yml`. GitHub can disable scheduled workflows after 60 days of repository inactivity; keepalive commits a small timestamp file monthly so the schedule keeps running.
 
----
+## Configuration
 
-## 3) Customize territory + accounts
-Edit: `src/config.json`
+Edit `src/config.json`.
 
-- `prepared_for`: your name
-- `territory`: list of regions / orgs
-- `briefing_mode`: `compact` (default) for tight, signal-first daily updates, or `standard` when you want more narrative context
-- `lookback_hours`: recency window used in prompt instructions (default `72`)
-- `accounts`: target accounts with seed “active projects to watch”
-- `themes`: your 3–5 strategic themes
-- `regulatory_items`: optional list of key regs/dates to always track
-- `email.subject_prefix`: subject prefix for both briefing and operational fallback emails
-- `sources`: public RSS/pages/procurement/trade sources collected before Gemini is called
-- `ranking`: scoring weights for leadership, account, official-source, procurement, theme, and regulatory signals
-- `email_v2`: newsroom digest settings, max stories, suppressed leads, and source-only fallback behavior
+Core fields:
 
-### Model + output control
+- `prepared_for`: audience label in the email
+- `territory`: territory covered by the digest
+- `lookback_hours`: recency window used for candidate collection and prompt context
+- `accounts`: target accounts, project seeds, and contact-role seeds
+- `themes`: strategic topics used for matching and ranking
+- `regulatory_items`: static regulatory dates that can be referenced with official evidence
+- `email.subject_prefix`: subject prefix for briefing and operational emails
 
-Edit the `model` section in `src/config.json`:
+Collector and v2 fields:
 
-- `preferred_models`: your preferred model IDs in execution order (recommended: only `gemini-2.5-flash`; retired 1.0/1.5 IDs are automatically ignored)
-- `max_output_tokens`: generation token budget for the main pass
-- `temperature`: model creativity level
-- `brevity.target_words`: target range used in instructions
-- `brevity.max_words`: hard target used in instructions for concise output
-- `brevity.section_word_limits`: per-section word ceilings injected into the system instruction
+- `sources`: curated public sources collected before Gemini runs
+- `ranking`: weights for leadership, account match, official source, procurement/project trigger, theme match, and regulatory content
+- `email_v2.enabled`: enables the newsroom digest behavior
+- `email_v2.max_stories`: maximum number of stories in the generated digest
+- `email_v2.suppressed_leads`: number of rejected/no-signal items to show
+- `email_v2.source_only_fallback`: sends a basic source-only digest if Gemini fails after collection succeeds
+- `email_v2.top_priority`: current policy for top-story selection
 
-If output still runs long, the script performs a compression pass that preserves section order and citations.
+Entity coverage fields:
 
-### Choosing a briefing mode
+- `entity_coverage.entity_universe_path`: optional entity universe file
+- `entity_coverage.spotlight_entities_per_day`: number of entities to rotate into focus
+- `entity_coverage.always_include`: accounts/entities that should stay in daily focus
 
-- `compact` (recommended for daily runs): Keeps the briefing short, allows 2 verified signals when fewer than 3 high-confidence developments exist, and limits subsection bullet density.
-- `standard`: Better for stakeholder readouts where extra background is useful. It still remains evidence-based, but allows richer explanatory context.
+## Source Collection
 
----
+Sources are configured in `src/config.json` under `sources`.
 
-## Notes on citations
-The script requests grounded output and injects inline citations from Gemini's `groundingMetadata`.
+Supported source types:
 
-**Known platform limitation:** `grounding_chunks` and `grounding_supports` are frequently
-returned as empty by the Gemini API even when Google Search clearly ran (confirmed open bug,
-early 2026). When this happens the email is still sent — citation injection is best-effort.
-The Actions log will print a `WARN: grounding_metadata present but supports/chunks empty` line
-with the `web_search_queries` that did run, so you can verify searches happened.
+- `rss`
+- `html_page`
+- `procurement_search`
 
-If citation count is below the configured threshold, a brief footer note is appended to the
-email. Generation is **not** retried in this case (retrying cannot fix a server-side metadata
-bug and would burn extra quota).
+The live catalog intentionally mixes official and trade sources. Trade media is useful for surfacing account-relevant leads that official sites may not frame commercially, but the email should treat trade items as leads and prefer official/primary confirmation where available.
 
----
+Current source groups include:
 
+- Federal / shared-service sources: FITKO, IT-Planungsrat, BMDS, DigitalService, BVA, BSI, BDBOS
+- State sources: Sachsen, Sachsen-Anhalt, Thueringen, Niedersachsen
+- Procurement sources: service.bund.de and e-Vergabe Bund
+- Digital sovereignty ecosystem: openCode, ZenDiS, govdigital, Vitako
+- Trade media: eGovernment Computing, Kommune21, Behoerden Spiegel, Public Manager
 
-## Operational behavior (quota / billing)
-If Gemini API quota or rate limits are exhausted, the workflow sends a short **quota alert email** instead of failing silently.
+Each collected candidate is normalized into a structured record with fields such as title, date, source URL, domain, source tier, account/theme matches, snippet, score, and collection timestamp.
 
-Operational sequence:
-1. optional preflight check on the first configured model (`SKIP_PREFLIGHT=1` disables it)
-2. source collector fetches configured public sources and writes candidate/rejected artifacts
-3. Gemini receives only the structured candidate list and formats a newsroom-style digest
-4. if Gemini quota/rate limits block generation, a source-only digest is sent from collected candidates
-5. if collection produces no usable candidates, a quality alert is sent instead of fabricated content
+The collector deduplicates by URL/title and separates usable candidates from rejected candidates. It also rejects low-relevance official-page noise, for example generic ministry navigation or press items that only match because a source is official. Rejections are retained in artifacts so the run can be audited without cluttering the email.
 
-GitHub Actions uploads quiet debug artifacts after each run:
+## Ranking Policy
+
+Ranking is BD-first:
+
+1. Leadership or stakeholder access signals
+2. Named-account project, procurement, or operating-model triggers
+3. Official-source confirmations
+4. Theme matches
+5. Broad market or regulatory shifts
+
+Generic regulation should not outrank a named-account opportunity trigger. EU AI Act content is treated as a side note unless the source creates a specific action for a named account.
+
+Trade media can rank when it concerns configured accounts or themes. It should not be presented as final proof of an official decision unless the story links to or can be paired with an official/primary source.
+
+## Gemini Use
+
+Gemini receives structured source candidates, not a blank instruction to discover stories. The prompt requires every hard signal source row to include a markdown link to the official or primary source used.
+
+The prompt must not tell the model to omit URLs or rely on automatic citation metadata. Grounding metadata can be useful, but explicit markdown links from collected candidates are the evidence path the quality gate can verify.
+
+If no verified hard signals are found, the briefing should say so. It must not fill the email with generic FITKO/BVA/Sachsen claims.
+
+## Quality Gates
+
+Generated output is blocked when diagnostics include evidence failures such as:
+
+- Empty output
+- Missing required sections
+- Unresolved placeholders
+- Zero links or zero domains
+- Missing source rows
+- Source rows that use weak phrases such as "no single recent press release", "not yet public", "general information", or "ongoing initiatives" as if they were verified evidence
+
+Blocked generated output is not sent as a briefing. The bot sends an operational alert with the failed diagnostics instead, unless a source-only fallback is available and appropriate.
+
+Warning-only diagnostics are reserved for minor issues that do not undermine factual grounding.
+
+## Fallback Behavior
+
+The normal sequence is:
+
+1. Optional Gemini preflight check, unless `SKIP_PREFLIGHT=1`
+2. Collect source candidates from configured public sources
+3. Rank and select candidates
+4. Ask Gemini to write the newsroom digest from those candidates
+5. Evaluate the generated briefing with hard evidence gates
+6. Send the generated briefing, source-only fallback, or operational alert
+
+Fallback rules:
+
+- If Gemini quota/rate limits fail and usable candidates exist, send a source-only digest.
+- If Gemini output fails quality gates, suppress it and send an operational alert.
+- If collection fails or produces no usable candidates, send an operational alert or an explicit no-verified-signals message rather than fabricated stories.
+
+## GitHub Actions Artifacts
+
+Each run uploads quiet audit/debug artifacts from `artifacts/`:
+
 - `candidate_signals.json`
 - `rejected_candidates.json`
 - `final_briefing.md`
 - `quality_report.json`
-- `source_only_fallback.md` when fallback mode is used
+- `source_only_fallback.md`, when fallback mode is used
 
-What to check if this happens repeatedly:
-- Enable billing for your Google AI Studio project.
-- Increase Gemini API limits (RPM/TPM).
-- Reduce `model.max_output_tokens` in `src/config.json`.
-- Optionally tighten `model.brevity.target_words` and `model.brevity.section_word_limits`.
+The email should remain clean. The artifacts are the place to debug source coverage, ranking, rejected leads, and quality decisions.
 
-## Included reference
-Your original DOCX template is included in `assets/` for reference.
+## Local Checks
 
+Run:
 
----
+```powershell
+python -m compileall src
+python -m pytest -q
+```
 
-## Scaling to “all public sector entities” in your states (recommended approach)
+The CI workflow should run the same checks on `main`, pull requests, and `codex/**` branches.
 
-Trying to enumerate *every* entity name inside the LLM prompt is brittle and incomplete.
-Instead, this template supports a **two-layer coverage model**:
+## Repository Settings
 
-### Layer A — Portal-first coverage (broad, entity-agnostic)
-Each run prioritizes signals from sources that naturally cover **many public-sector entities at once**, e.g.:
-- procurement / tender portals
-- ministry & agency pressrooms
-- budget / programme announcements
+This project is automation-only and does not require GitHub Pages.
 
-This gives you “whole-territory” coverage without maintaining a massive list.
+Recommended settings:
 
-### Layer B — Rotating entity spotlight (deep, specific)
-A configurable number of entities are “spotlighted” each day (e.g., 25) so that over a week you cycle through the universe.
-You can also set an “always-on” list (state CIO office, central IT provider, key ministries, etc.).
+- In `Settings -> Pages`, disable Pages unless intentionally used in a fork.
+- In Actions, normal operation only requires `Send Public Sector Briefing` and `Keepalive`.
+- Keep SMTP and Gemini credentials in GitHub Actions secrets only.
 
-### Where to configure it
-Edit `src/config.json`:
-- `entity_coverage.mode`
-- `entity_coverage.spotlight_entities_per_day`
-- `entity_coverage.always_include`
-- `entity_coverage.entity_universe_path`
+## Cost Posture
 
-And edit the universe itself:
-- `src/entity_universe.json`
+The setup is designed to stay free or near-free:
 
-Tip: Start with top-level entities (state ministries, central IT providers, key agencies) and add subordinate bodies + major Kommunen over time.
+- GitHub Actions scheduler
+- Gmail SMTP
+- Public source collection
+- No database
+- No hosted web app
+- Gemini used only after candidates have been collected
+- Source-only fallback when Gemini is unavailable
+
+To reduce quota pressure, lower `model.max_output_tokens`, reduce `email_v2.max_stories`, tighten source lists, or keep `preferred_models` focused on a low-cost Gemini Flash model.
+
+## Included Reference
+
+The original DOCX briefing template is kept in `assets/` for reference, but the production email is now the v2 newsroom digest rather than the old long-form template.

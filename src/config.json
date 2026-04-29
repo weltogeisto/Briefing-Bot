@@ -110,18 +110,54 @@
       "seed": [
         "Deutschland-Stack → procurement reality",
         "data residency, exit strategies, sovereign cloud options"
+      ],
+      "keywords": [
+        "digitale souveränität",
+        "digital sovereignty",
+        "open source",
+        "opencode",
+        "zendis",
+        "sovereign cloud",
+        "souveräne cloud",
+        "public money",
+        "public code"
       ]
     },
     {
       "name": "AI Governance & Compliance",
       "seed": [
         "AI inventory, risk classification, training/AI literacy, FRIA for high-risk deployments where applicable"
+      ],
+      "keywords": [
+        "ki",
+        "künstliche intelligenz",
+        "artificial intelligence",
+        "ai governance",
+        "ki-governance",
+        "ai act",
+        "ki-verordnung",
+        "automatisierung",
+        "algorithm"
       ]
     },
     {
       "name": "Cloud & Infrastructure",
       "seed": [
         "FinOps, cost governance, multi-cloud operating model, platform engineering"
+      ],
+      "keywords": [
+        "cloud",
+        "it-infrastruktur",
+        "digitale infrastruktur",
+        "rechenzentrum",
+        "plattformbetrieb",
+        "registermodernisierung",
+        "ozg",
+        "onlinezugangsgesetz",
+        "verwaltungsdigitalisierung",
+        "digitalisierung",
+        "cyber",
+        "it-sicherheit"
       ]
     }
   ],
@@ -146,11 +182,131 @@
   },
   "sources": [
     {
+      "id": "sachsen-anhalt-ministerien-rss",
+      "label": "Sachsen-Anhalt Ministerien RSS",
+      "type": "rss",
+      "tier": "official",
+      "url": "https://www.sachsen-anhalt.de/bs/pressemitteilungen/rss-feeds?tx_tsarssinclude_rss%5Baction%5D=feed&tx_tsarssinclude_rss%5Bcontroller%5D=Rss&tx_tsarssinclude_rss%5Buid%5D=74&type=9988&cHash=2cfcd7bfc44fae4c0e312f58f2a6cf60",
+      "enabled": true
+    },
+    {
+      "id": "sachsen-anhalt-mid-rss",
+      "label": "Sachsen-Anhalt Infrastruktur und Digitales RSS",
+      "type": "rss",
+      "tier": "official",
+      "url": "https://www.sachsen-anhalt.de/bs/pressemitteilungen/rss-feeds?tx_tsarssinclude_rss%5Baction%5D=feed&tx_tsarssinclude_rss%5Bcontroller%5D=Rss&tx_tsarssinclude_rss%5Buid%5D=206&type=9988&cHash=c34573a1236a3f80d9f0ca2263d1be5b",
+      "enabled": true
+    },
+    {
+      "id": "sachsen-anhalt-mi-rss",
+      "label": "Sachsen-Anhalt Inneres und Sport RSS",
+      "type": "rss",
+      "tier": "official",
+      "url": "https://www.sachsen-anhalt.de/bs/pressemitteilungen/rss-feeds?tx_tsarssinclude_rss%5Baction%5D=feed&tx_tsarssinclude_rss%5Bcontroller%5D=Rss&tx_tsarssinclude_rss%5Buid%5D=3&type=9988&cHash=be0b92ff9ee4ffdc86376a91e91a37e9",
+      "enabled": true
+    },
+    {
+      "id": "sachsen-anhalt-mwl-rss",
+      "label": "Sachsen-Anhalt Wirtschaft RSS",
+      "type": "rss",
+      "tier": "official",
+      "url": "https://www.sachsen-anhalt.de/bs/pressemitteilungen/rss-feeds?tx_tsarssinclude_rss%5Baction%5D=feed&tx_tsarssinclude_rss%5Bcontroller%5D=Rss&tx_tsarssinclude_rss%5Buid%5D=208&type=9988&cHash=5e30240894aad23b467b06426b46c5b9",
+      "enabled": true
+    },
+    {
+      "id": "sachsen-datenschutz-rss",
+      "label": "Sachsen Datenschutz RSS",
+      "type": "rss",
+      "tier": "official",
+      "url": "https://datenschutz.sachsen.de/rss.xml",
+      "enabled": true
+    },
+    {
+      "id": "kommune21-rss",
+      "label": "Kommune21 RSS",
+      "type": "rss",
+      "tier": "trade",
+      "url": "https://www.kommune21.de/feed/",
+      "enabled": true
+    },
+    {
+      "id": "egovernment-rss",
+      "label": "eGovernment Computing RSS",
+      "type": "rss",
+      "tier": "trade",
+      "url": "https://www.egovernment.de/rss.xml",
+      "enabled": true
+    },
+    {
+      "id": "behoerden-spiegel-rss",
+      "label": "Behoerden Spiegel RSS",
+      "type": "rss",
+      "tier": "trade",
+      "url": "https://www.behoerden-spiegel.de/feed/",
+      "enabled": true
+    },
+    {
+      "id": "public-manager-rss",
+      "label": "Public Manager RSS",
+      "type": "rss",
+      "tier": "trade",
+      "url": "https://www.public-manager.com/rss.xml",
+      "enabled": true
+    },
+    {
+      "id": "vitako-rss",
+      "label": "Vitako RSS",
+      "type": "rss",
+      "tier": "trade",
+      "url": "https://www.vitako.de/feed/",
+      "enabled": true
+    },
+    {
+      "id": "govdigital-rss",
+      "label": "govdigital RSS",
+      "type": "rss",
+      "tier": "trade",
+      "url": "https://www.govdigital.de/feed/",
+      "enabled": true
+    },
+    {
       "id": "fitko-news",
       "label": "FITKO Aktuelles",
       "type": "html_page",
       "tier": "official",
       "url": "https://www.fitko.de/aktuelles",
+      "enabled": true
+    },
+    {
+      "id": "it-planungsrat-news",
+      "label": "IT-Planungsrat Aktuelles",
+      "type": "html_page",
+      "tier": "official",
+      "url": "https://www.it-planungsrat.de/aktuelles",
+      "enabled": true
+    },
+    {
+      "id": "it-planungsrat-beschluesse",
+      "label": "IT-Planungsrat Beschluesse",
+      "type": "html_page",
+      "tier": "official",
+      "url": "https://www.it-planungsrat.de/beschluesse",
+      "enabled": true
+    },
+    {
+      "id": "bmds-news",
+      "label": "Bundesministerium Digitales und Staatsmodernisierung",
+      "type": "html_page",
+      "tier": "official",
+      "url": "https://bmds.bund.de/aktuelles",
+      "enabled": true
+    },
+    {
+      "id": "digitalservice-news",
+      "label": "DigitalService Pressemeldungen",
+      "type": "html_page",
+      "tier": "official",
+      "url": "https://digitalservice.bund.de/presse/pressemeldungen",
       "enabled": true
     },
     {
@@ -162,11 +318,35 @@
       "enabled": true
     },
     {
+      "id": "bsi-press",
+      "label": "BSI Pressemitteilungen",
+      "type": "html_page",
+      "tier": "official",
+      "url": "https://www.bsi.bund.de/DE/Service-Navi/Presse/Pressemitteilungen/pressemitteilungen_node.html",
+      "enabled": true
+    },
+    {
+      "id": "bdbos-press",
+      "label": "BDBOS Pressemitteilungen",
+      "type": "html_page",
+      "tier": "official",
+      "url": "https://www.bdbos.bund.de/DE/Service/Presse/Pressemitteilungen/pressemitteilungen_node.html",
+      "enabled": true
+    },
+    {
       "id": "sachsen-news",
       "label": "Sachsen Medienservice",
       "type": "html_page",
       "tier": "official",
       "url": "https://www.medienservice.sachsen.de/medien/news",
+      "enabled": true
+    },
+    {
+      "id": "sachsen-digitalagentur",
+      "label": "Digitalagentur Sachsen",
+      "type": "html_page",
+      "tier": "official",
+      "url": "https://www.digitalagentur.sachsen.de/",
       "enabled": true
     },
     {
@@ -178,6 +358,30 @@
       "enabled": true
     },
     {
+      "id": "niedersachsen-stk-press",
+      "label": "Niedersachsen Staatskanzlei Presse",
+      "type": "html_page",
+      "tier": "official",
+      "url": "https://www.stk.niedersachsen.de/startseite/presseinformationen/",
+      "enabled": true
+    },
+    {
+      "id": "niedersachsen-mi-press",
+      "label": "Niedersachsen Innenministerium Presse",
+      "type": "html_page",
+      "tier": "official",
+      "url": "https://www.mi.niedersachsen.de/startseite/aktuelles/presseinformationen/",
+      "enabled": true
+    },
+    {
+      "id": "niedersachsen-mw-press",
+      "label": "Niedersachsen Wirtschaftsministerium Presse",
+      "type": "html_page",
+      "tier": "official",
+      "url": "https://www.mw.niedersachsen.de/startseite/aktuelles/presseinformationen/",
+      "enabled": true
+    },
+    {
       "id": "thueringen-news",
       "label": "Thueringen Presse",
       "type": "html_page",
@@ -186,11 +390,51 @@
       "enabled": true
     },
     {
+      "id": "thueringen-medienservice",
+      "label": "Thueringen Medienservice",
+      "type": "html_page",
+      "tier": "official",
+      "url": "https://thueringen.de/medienservice/medieninformationen",
+      "enabled": true
+    },
+    {
+      "id": "thueringen-wirtschaft-medienservice",
+      "label": "Thueringen Wirtschaft Medienservice",
+      "type": "html_page",
+      "tier": "official",
+      "url": "https://wirtschaft.thueringen.de/ministerium/medienservice",
+      "enabled": true
+    },
+    {
       "id": "service-bund",
       "label": "Service Bund Ausschreibungen",
       "type": "procurement_search",
       "tier": "official",
       "url": "https://www.service.bund.de/Content/DE/Ausschreibungen/Suche/Formular.html",
+      "enabled": true
+    },
+    {
+      "id": "evergabe-online",
+      "label": "e-Vergabe Bund",
+      "type": "html_page",
+      "tier": "official",
+      "url": "https://www.evergabe-online.de/",
+      "enabled": true
+    },
+    {
+      "id": "opencode-news",
+      "label": "openCode News",
+      "type": "html_page",
+      "tier": "official",
+      "url": "https://opencode.de/de/news",
+      "enabled": true
+    },
+    {
+      "id": "zendis-newsroom",
+      "label": "ZenDiS Newsroom",
+      "type": "html_page",
+      "tier": "official",
+      "url": "https://www.zendis.de/newsroom",
       "enabled": true
     },
     {

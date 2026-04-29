@@ -51,6 +51,13 @@ REGULATORY_TERMS = [
     "compliance",
 ]
 
+BOUNDARY_TERMS = {
+    "ki",
+    "auftrag",
+    "minister",
+    "ministerin",
+}
+
 
 def default_fetcher(url: str) -> str:
     req = urllib.request.Request(
@@ -131,6 +138,7 @@ def theme_terms(cfg: dict) -> Dict[str, List[str]]:
             continue
         terms = [name]
         terms.extend(str(s) for s in theme.get("seed", []) or [])
+        terms.extend(str(s) for s in theme.get("keywords", []) or [])
         out[name] = [t for t in terms if t]
     return out
 
@@ -139,14 +147,35 @@ def matching_names(text: str, term_map: Dict[str, List[str]]) -> List[str]:
     haystack = text.casefold()
     matches: List[str] = []
     for name, terms in term_map.items():
-        if any(term.casefold() in haystack for term in terms if len(term.strip()) >= 3):
+        term_matched = False
+        for term in terms:
+            folded = term.strip().casefold()
+            if len(folded) < 3:
+                continue
+            if len(folded) <= 3:
+                if re.search(rf"\b{re.escape(folded)}\b", haystack):
+                    term_matched = True
+                    break
+            elif folded in haystack:
+                term_matched = True
+                break
+        if term_matched:
             matches.append(name)
     return matches
 
 
 def term_hits(text: str, terms: Iterable[str]) -> List[str]:
     haystack = text.casefold()
-    return [term for term in terms if term.casefold() in haystack]
+    hits: List[str] = []
+    for term in terms:
+        folded = term.casefold()
+        if folded in BOUNDARY_TERMS:
+            if re.search(rf"\b{re.escape(folded)}\b", haystack):
+                hits.append(term)
+            continue
+        if folded in haystack:
+            hits.append(term)
+    return hits
 
 
 def make_candidate(
@@ -324,6 +353,26 @@ def rank_candidates(candidates: List[Dict[str, Any]], cfg: dict) -> List[Dict[st
     )
 
 
+def split_relevance(candidates: List[Dict[str, Any]]) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
+    kept: List[Dict[str, Any]] = []
+    rejected: List[Dict[str, Any]] = []
+    for candidate in candidates:
+        reasons = set(candidate.get("score_reasons", []) or [])
+        theme_or_regulatory = reasons & {"theme_match", "regulatory"}
+        procurement_portal_hit = (
+            "procurement_project" in reasons
+            and candidate.get("source_type") == "procurement_search"
+        )
+        trade_account_lead = candidate.get("source_tier") == "trade" and "account_match" in reasons
+        leadership_hits = {str(hit).casefold() for hit in candidate.get("leadership_hits", []) or []}
+        digital_leadership = bool({"cio", "cdo", "chief digital"} & leadership_hits) and "account_match" in reasons
+        if theme_or_regulatory or procurement_portal_hit or trade_account_lead or digital_leadership:
+            kept.append(candidate)
+        else:
+            rejected.append({**candidate, "rejection_reason": "below_relevance_threshold"})
+    return kept, rejected
+
+
 def collect_source_candidates(
     cfg: dict,
     *,
@@ -353,4 +402,5 @@ def collect_source_candidates(
             rejected.append({"source_id": source.get("id", ""), "url": url, "rejection_reason": f"fetch_or_parse_error:{exc}"})
     deduped, duplicate_rejections = deduplicate_candidates(all_candidates)
     ranked = rank_candidates(deduped, cfg)
-    return ranked, rejected + duplicate_rejections
+    relevant, relevance_rejections = split_relevance(ranked)
+    return relevant, rejected + duplicate_rejections + relevance_rejections
