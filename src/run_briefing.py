@@ -97,8 +97,18 @@ def estimate_word_count(text: str) -> int:
     return len(re.findall(r"\S+", text or ""))
 
 
+# Captures the URL inside `[text](url)`. The non-greedy URL body plus the
+# lookahead means URLs containing balanced parens (e.g. Wikipedia
+# `..._(disambiguation)`) are kept intact: the engine extends the match until
+# the closing paren is followed by whitespace, end-of-line, end-of-string, or
+# a sentence-ending punctuation character.
+MARKDOWN_LINK_RE = re.compile(
+    r"\[[^\]]+\]\((https?://\S+?)\)(?=[\s,.;:!?]|$)"
+)
+
+
 def extract_markdown_links(markdown_text: str) -> List[str]:
-    links = re.findall(r"\[[^\]]+\]\((https?://[^)\s]+)\)", markdown_text or "")
+    links = MARKDOWN_LINK_RE.findall(markdown_text or "")
     return dedup_keep_order(links)
 
 
@@ -863,7 +873,7 @@ def markdown_to_html(markdown_text: str, footer_note: Optional[str] = None) -> s
     if footer_note:
         footer_html = f"""
     <hr style="border:none;border-top:1px solid #ddd;margin:24px 0;"/>
-    <p style="font-size:12px;color:#888;line-height:1.5;">{footer_note}</p>"""
+    <p style="font-size:12px;color:#888;line-height:1.5;">{html_lib.escape(footer_note)}</p>"""
     return f"""\
 <!DOCTYPE html>
 <html lang="de">
@@ -884,7 +894,7 @@ def ensure_citations_present(markdown_text: str, fallback_citations: List[str]) 
     if not fallback_citations:
         return markdown_text
 
-    has_inline_links = bool(re.search(r"\[[^\]]+\]\((https?://[^)\s]+)\)", markdown_text or ""))
+    has_inline_links = bool(MARKDOWN_LINK_RE.search(markdown_text or ""))
     if has_inline_links:
         return markdown_text
 
@@ -906,7 +916,7 @@ def send_email(subject: str, html_body: str, sender: str, recipients: List[str],
 
     context = ssl.create_default_context()
     try:
-        with smtplib.SMTP_SSL("smtp.gmail.com", 465, context=context) as server:
+        with smtplib.SMTP_SSL("smtp.gmail.com", 465, timeout=30, context=context) as server:
             server.login(sender, smtp_password)
             server.sendmail(sender, recipients, msg.as_string())
     except smtplib.SMTPAuthenticationError as e:
@@ -1044,11 +1054,11 @@ def build_quota_alert_html(subject_prefix: str, error_message: str) -> str:
     now_utc = dt.datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC")
     return f"""<html>
   <body style="font-family: Arial, Helvetica, sans-serif; line-height: 1.45;">
-    <h2>{subject_prefix} — quota/rate-limit alert</h2>
+    <h2>{html_lib.escape(subject_prefix)} — quota/rate-limit alert</h2>
     <p>The daily briefing run could not complete due to Gemini API quota/rate limits.</p>
     <ul>
-      <li><strong>Time:</strong> {now_utc}</li>
-      <li><strong>Reason:</strong> {error_message}</li>
+      <li><strong>Time:</strong> {html_lib.escape(now_utc)}</li>
+      <li><strong>Reason:</strong> {html_lib.escape(error_message)}</li>
       <li><strong>Action needed:</strong> Enable billing or increase Gemini API quota/rate limits for this project.</li>
     </ul>
     <p>This is an operational fallback email sent by the workflow when content generation is blocked.</p>
@@ -1061,14 +1071,14 @@ def build_length_cap_alert_html(subject_prefix: str, diagnostics: Dict[str, Any]
     now_utc = dt.datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC")
     return f"""<html>
   <body style="font-family: Arial, Helvetica, sans-serif; line-height: 1.45;">
-    <h2>{subject_prefix} — length cap alert</h2>
+    <h2>{html_lib.escape(subject_prefix)} — length cap alert</h2>
     <p>The daily briefing exceeded the configured word-count cap even after two compression passes.</p>
     <ul>
-      <li><strong>Time:</strong> {now_utc}</li>
-      <li><strong>Configured cap:</strong> {diagnostics.get('configured_cap', '?')} words</li>
-      <li><strong>Pre-citation words:</strong> {diagnostics.get('pre_citation_words', '?')}</li>
-      <li><strong>Post-compression words:</strong> {diagnostics.get('post_compression_words', '?')}</li>
-      <li><strong>Final words:</strong> {diagnostics.get('final_words', '?')}</li>
+      <li><strong>Time:</strong> {html_lib.escape(now_utc)}</li>
+      <li><strong>Configured cap:</strong> {int(diagnostics.get('configured_cap', 0))} words</li>
+      <li><strong>Pre-citation words:</strong> {int(diagnostics.get('pre_citation_words', 0))}</li>
+      <li><strong>Post-compression words:</strong> {int(diagnostics.get('post_compression_words', 0))}</li>
+      <li><strong>Final words:</strong> {int(diagnostics.get('final_words', 0))}</li>
     </ul>
     <p>The briefing email was suppressed. Consider lowering max_output_tokens or tightening brevity targets.</p>
   </body>
@@ -1212,6 +1222,8 @@ def main() -> None:
         response = generate_with_fallback(client, model_ids, prompt, primary_cfg)
 
         initial_text = getattr(response, "text", "") or ""
+        if not initial_text.strip():
+            print("WARN: model returned empty/null text; downstream quality gates will block.")
         pre_citation_words = estimate_word_count(initial_text)
 
         md_with_cites = add_citations_markdown(response)
