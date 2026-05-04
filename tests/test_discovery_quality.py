@@ -76,13 +76,14 @@ def sample_candidate():
     }
 
 
-def test_ci_runs_compile_and_tests_on_main_and_codex_branches():
+def test_ci_runs_compile_and_tests_on_main_codex_and_claude_branches():
     ci = (ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
 
     assert "pull_request:" in ci
     assert "push:" in ci
     assert "- main" in ci
     assert '- "codex/**"' in ci
+    assert '- "claude/**"' in ci
     assert "python -m compileall src" in ci
     assert "python -m pytest -q" in ci
 
@@ -569,3 +570,88 @@ def test_main_sends_quality_alert_when_collector_finds_no_candidates(monkeypatch
     assert len(sent) == 1
     assert "quality alert" in sent[0]["subject"].lower()
     assert "no_collected_candidates" in sent[0]["html"]
+
+
+def test_extract_markdown_links_preserves_url_with_balanced_parens():
+    rb = load_run_briefing()
+    markdown = (
+        "See [Foo](https://en.wikipedia.org/wiki/Foo_(disambiguation)) and "
+        "[Bar](https://example.gov/path), then [Baz](https://example.org/x).\n"
+    )
+
+    links = rb.extract_markdown_links(markdown)
+
+    assert "https://en.wikipedia.org/wiki/Foo_(disambiguation)" in links
+    assert "https://example.gov/path" in links
+    assert "https://example.org/x" in links
+    assert len(links) == 3
+
+
+def test_markdown_to_html_escapes_footer_note():
+    rb = load_run_briefing()
+    html_out = rb.markdown_to_html("body", footer_note="<script>alert('xss')</script>")
+
+    assert "<script>" not in html_out
+    assert "&lt;script&gt;" in html_out
+
+
+def test_send_email_uses_explicit_smtp_timeout(monkeypatch):
+    rb = load_run_briefing()
+    captured = {}
+
+    class FakeServer:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def login(self, user, password):
+            captured["login"] = (user, password)
+
+        def sendmail(self, sender, recipients, message):
+            captured["sendmail"] = (sender, recipients)
+
+    def fake_smtp_ssl(host, port, **kwargs):
+        captured["host"] = host
+        captured["port"] = port
+        captured["kwargs"] = kwargs
+        return FakeServer()
+
+    monkeypatch.setattr(rb.smtplib, "SMTP_SSL", fake_smtp_ssl)
+    rb.send_email("subj", "<p>body</p>", "sender@example.com", ["bd@example.com"], "pw")
+
+    assert captured["host"] == "smtp.gmail.com"
+    assert captured["port"] == 465
+    assert captured["kwargs"].get("timeout") == 30
+
+
+def test_collector_tags_malformed_xml_with_parse_error_reason():
+    sc = load_source_collection()
+    config = load_json("config.json")
+    source = {
+        "id": "official-test",
+        "label": "Official Test",
+        "type": "rss",
+        "tier": "official",
+        "url": "https://example.gov/rss.xml",
+        "enabled": True,
+    }
+    config["sources"] = [source]
+
+    candidates, rejected = sc.collect_source_candidates(config, fetcher=lambda url: "<not really xml")
+
+    assert candidates == []
+    assert any(
+        "xml_parse_error" in str(item.get("rejection_reason", ""))
+        for item in rejected
+    )
+
+
+def test_quota_alert_html_escapes_error_message():
+    rb = load_run_briefing()
+    html_out = rb.build_quota_alert_html("Subj", "<script>boom</script> & friends")
+
+    assert "<script>boom" not in html_out
+    assert "&lt;script&gt;boom&lt;/script&gt;" in html_out
+    assert "&amp; friends" in html_out

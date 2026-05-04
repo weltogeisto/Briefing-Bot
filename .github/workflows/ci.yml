@@ -6,6 +6,7 @@ on:
     branches:
       - main
       - "codex/**"
+      - "claude/**"
 
 permissions:
   contents: read

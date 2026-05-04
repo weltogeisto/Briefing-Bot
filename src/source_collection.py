@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import datetime as dt
 import html
+import http.client
 import re
 import urllib.error
 import urllib.parse
@@ -71,7 +72,7 @@ def default_fetcher(url: str) -> str:
         with urllib.request.urlopen(req, timeout=20) as response:
             charset = response.headers.get_content_charset() or "utf-8"
             return response.read().decode(charset, errors="replace")
-    except (urllib.error.URLError, TimeoutError) as exc:
+    except (urllib.error.URLError, TimeoutError, OSError, http.client.HTTPException) as exc:
         raise RuntimeError(f"Failed to fetch {url}: {exc}") from exc
 
 
@@ -217,7 +218,10 @@ def make_candidate(
 
 
 def parse_rss_candidates(xml_text: str, source: dict, cfg: dict, collected_at: str) -> List[Dict[str, Any]]:
-    root = ET.fromstring(xml_text)
+    try:
+        root = ET.fromstring(xml_text)
+    except ET.ParseError as exc:
+        raise RuntimeError(f"xml_parse_error: {exc}") from exc
     candidates: List[Dict[str, Any]] = []
     channel_items = root.findall(".//item")
     atom_entries = root.findall(".//{http://www.w3.org/2005/Atom}entry")
