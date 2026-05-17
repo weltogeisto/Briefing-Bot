@@ -71,6 +71,7 @@ def sample_candidate():
         "leadership_hits": ["cio", "leitung"],
         "procurement_hits": [],
         "regulatory_hits": [],
+        "event_types": ["role_change"],
         "score": 29,
         "score_reasons": ["leadership", "account_match", "official_source"],
     }
@@ -237,6 +238,21 @@ def test_prompt_includes_balanced_source_discovery_before_entity_searches(monkey
     assert "No verified signals in this period" in combined
 
 
+def test_newsroom_v2_system_instruction_uses_single_newsroom_contract():
+    rb = load_run_briefing()
+    config = load_json("config.json")
+    brevity = config["model"]["brevity"]
+
+    system_instruction = rb.build_newsroom_system_instruction(config, brevity)
+
+    assert "NEWSROOM DIGEST" in system_instruction
+    assert "BD ACTIONS" in system_instruction
+    assert "Use only the supplied candidate source records" in system_instruction
+    assert "VERIFIED HARD SIGNALS" not in system_instruction
+    assert "REGULATORY COUNTDOWN" not in system_instruction
+    assert "CALENDAR: KEY DATES AHEAD" not in system_instruction
+
+
 def test_quality_diagnostics_block_on_weak_evidence():
     rb = load_run_briefing()
     markdown = """PUBLIC SECTOR DAILY
@@ -386,7 +402,7 @@ def test_source_only_digest_counts_rendered_source_colon_rows():
     assert result["source_domain_count"] == 1
 
 
-def test_main_sends_quality_alert_not_briefing_when_generated_text_has_no_links(monkeypatch):
+def test_main_sends_source_only_digest_when_generated_text_fails_quality_gate(monkeypatch):
     rb = load_run_briefing()
     bad_markdown = """PUBLIC SECTOR DAILY
 
@@ -414,7 +430,11 @@ TODAY'S TOP PRIORITY
             self.calls += 1
             if self.calls == 1:
                 return types.SimpleNamespace(text="OK", candidates=[])
-            return types.SimpleNamespace(text=bad_markdown, candidates=[])
+            return types.SimpleNamespace(
+                text=bad_markdown,
+                candidates=[types.SimpleNamespace(finish_reason="STOP")],
+                usage_metadata=types.SimpleNamespace(total_token_count=123),
+            )
 
         def list(self):
             return []
@@ -442,9 +462,12 @@ TODAY'S TOP PRIORITY
     rb.main()
 
     assert len(sent) == 1
-    assert "quality alert" in sent[0]["subject"].lower()
-    assert "weak_source_language" in sent[0]["html"]
+    assert "source-only digest" in sent[0]["subject"].lower()
+    assert "Neue CIO Leitung fuer Sachsen digital ernannt" in sent[0]["html"]
     assert "FITKO continues OZG 2.0 coordination" not in sent[0]["html"]
+    report = json.loads((ROOT / ".pytest-artifacts" / "quality_report.json").read_text(encoding="utf-8"))
+    assert report["fallback_mode"] == "source_only_quality_fallback"
+    assert report["generation_diagnostics"]["finish_reasons"] == ["STOP"]
 
 
 def test_main_sends_source_only_digest_after_rate_limit_when_candidates_exist(monkeypatch):
@@ -532,7 +555,7 @@ def test_main_sends_source_only_digest_after_preflight_503_when_candidates_exist
     assert len(sent) == 1
     assert "source-only digest" in sent[0]["subject"].lower()
     assert "Neue CIO Leitung fuer Sachsen digital ernannt" in sent[0]["html"]
-    assert len(fake_models.calls) == 1
+    assert len(fake_models.calls) == 3
 
 
 def test_newsroom_prompt_contains_only_structured_candidates_with_urls():

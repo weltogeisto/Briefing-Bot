@@ -531,6 +531,51 @@ COMPACT OUTPUT RULES:
 **For Gartner internal BD use only. Do not distribute externally.**"""
 
 
+def build_newsroom_system_instruction(cfg: dict, brevity: Dict[str, Any]) -> str:
+    """System instruction for email_v2/newsroom mode.
+
+    Keep this separate from the legacy 6-section briefing contract. In v2 the
+    model formats already-collected source records; it must not blend in the
+    older search-driven hard-signal template.
+    """
+    max_words = int(brevity.get("max_words", 1300))
+    max_stories = int(((cfg.get("email_v2") or {}).get("max_stories", 4)))
+    return f"""You are a German public-sector BD intelligence editor.
+
+Use only the supplied candidate source records. Do not add facts from memory, training data, or generic background. If a candidate lacks a usable source URL, suppress it.
+
+Your job is to format a concise newsroom digest, not to perform fresh discovery. Prefer concrete buying triggers: tender/award, budget, deadline, named project milestone, strategy publication, role change, or consultation deadline. Treat generic digitalization/event/newsletter items as low value unless the candidate record shows a material event type.
+
+Output contract (follow exactly):
+
+TODAY'S TOP PRIORITY
+
+## 1. NEWSROOM DIGEST
+
+### Top Story
+- **What changed:** one concrete change from the top candidate.
+- **Why it matters:** why this creates a BD opening now.
+- **BD move:** specific next action tied to account, trigger, and timing.
+- **Source:** markdown link using candidate.url.
+
+### Other Verified Stories
+Use up to {max(max_stories - 1, 0)} short bullets. Each bullet must contain **Source:** with a markdown link.
+
+## 2. BD ACTIONS
+
+Use the markdown table supplied in the prompt. Every Evidence cell must contain a markdown link.
+
+## 3. NO-SIGNAL / SUPPRESSED LEADS
+
+List important rejected or suppressed items with their rejection reason. No speculation.
+
+## 4. QUALITY FOOTER
+
+Include candidate count, source domains, rejected count, and fallback mode.
+
+Hard limits: under {max_words} words; no legacy sections; no placeholders; no raw bare URLs outside markdown links."""
+
+
 def build_prompt(cfg: dict, brevity: Dict[str, Any]) -> str:
     """
     User prompt with the specific briefing parameters for today.
@@ -786,13 +831,21 @@ def write_text_artifact(name: str, text: str) -> None:
     path.write_text(text or "", encoding="utf-8")
 
 
-def quality_report(markdown_text: str, diagnostics: Dict[str, Any], candidates: List[Dict[str, Any]], rejected: List[Dict[str, Any]], fallback_mode: str) -> Dict[str, Any]:
+def quality_report(
+    markdown_text: str,
+    diagnostics: Dict[str, Any],
+    candidates: List[Dict[str, Any]],
+    rejected: List[Dict[str, Any]],
+    fallback_mode: str,
+    generation_diagnostics: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
     return {
         "diagnostics": diagnostics,
         "candidate_count": len(candidates),
         "rejected_count": len(rejected),
         "fallback_mode": fallback_mode,
         "links": extract_markdown_links(markdown_text),
+        "generation_diagnostics": generation_diagnostics or {},
         "generated_at": dt.datetime.utcnow().replace(microsecond=0).isoformat() + "Z",
     }
 
@@ -902,6 +955,91 @@ def ensure_citations_present(markdown_text: str, fallback_citations: List[str]) 
     return f"{markdown_text.rstrip()}\n\n## Sources\n{source_lines}\n"
 
 
+def _safe_attr_dict(obj: Any, keys: List[str]) -> Dict[str, Any]:
+    out: Dict[str, Any] = {}
+    for key in keys:
+        value = getattr(obj, key, None)
+        if value is None:
+            continue
+        if isinstance(value, (str, int, float, bool)):
+            out[key] = value
+        else:
+            out[key] = str(value)
+    return out
+
+
+def model_response_diagnostics(response: Any) -> Dict[str, Any]:
+    candidates = getattr(response, "candidates", None) or []
+    finish_reasons: List[str] = []
+    safety_ratings: List[str] = []
+    for candidate in candidates:
+        finish_reason = getattr(candidate, "finish_reason", None)
+        if finish_reason is not None:
+            finish_reasons.append(str(finish_reason))
+        for rating in getattr(candidate, "safety_ratings", None) or []:
+            safety_ratings.append(str(rating))
+
+    usage = getattr(response, "usage_metadata", None)
+    diagnostics = {
+        "finish_reasons": finish_reasons,
+        "candidate_count": len(candidates),
+        "safety_ratings": safety_ratings,
+        "usage_metadata": _safe_attr_dict(
+            usage,
+            ["prompt_token_count", "candidates_token_count", "total_token_count"],
+        ) if usage is not None else {},
+    }
+    return diagnostics
+
+
+def log_generation_diagnostics(diagnostics: Dict[str, Any]) -> None:
+    finish = ",".join(diagnostics.get("finish_reasons") or []) or "unknown"
+    usage = diagnostics.get("usage_metadata") or {}
+    total_tokens = usage.get("total_token_count", "unknown")
+    print(f"INFO: Gemini generation diagnostics finish_reasons={finish} total_tokens={total_tokens}")
+
+
+def send_source_only_digest(
+    *,
+    cfg: dict,
+    candidates: List[Dict[str, Any]],
+    rejected_candidates: List[Dict[str, Any]],
+    citation_thresholds: Dict[str, int],
+    subject_prefix: str,
+    smtp_user: str,
+    recipients: List[str],
+    smtp_password: str,
+    fallback_mode: str,
+    generation_diagnostics: Optional[Dict[str, Any]] = None,
+) -> None:
+    final_markdown = render_source_only_digest(cfg, candidates, rejected_candidates)
+    quality_diagnostics = evaluate_briefing_quality(final_markdown, citation_thresholds)
+    write_text_artifact("source_only_fallback.md", final_markdown)
+    write_text_artifact("final_briefing.md", final_markdown)
+    write_json_artifact(
+        "quality_report.json",
+        quality_report(
+            final_markdown,
+            quality_diagnostics,
+            candidates,
+            rejected_candidates,
+            fallback_mode,
+            generation_diagnostics,
+        ),
+    )
+    if quality_diagnostics["should_block"]:
+        alert_subject = f"{subject_prefix} - quality alert - {today_iso_utc()}"
+        alert_html = build_quality_alert_html(subject_prefix, quality_diagnostics)
+        send_email(alert_subject, alert_html, smtp_user, recipients, smtp_password)
+        print("OK: source-only fallback also failed quality gates; quality alert sent.")
+        return
+
+    html = markdown_to_html(final_markdown)
+    subject = f"{subject_prefix} - source-only digest - {today_iso_utc()}"
+    send_email(subject, html, smtp_user, recipients, smtp_password)
+    print("OK: source-only fallback digest sent to recipients.")
+
+
 
 # -----------------------------
 # Email
@@ -990,26 +1128,35 @@ def throttle_gemini_calls() -> None:
 
 def run_preflight_check(client: genai.Client, model_ids: List[str]) -> None:
     """
-    Send one tiny request so we can fail fast with a clear reason in logs.
+    Send tiny requests through the same model fallback list used for generation.
+    A transient 503 on the primary model should not abort the whole run if a
+    configured fallback model is healthy.
     """
     if not model_ids:
         raise RuntimeError("No model IDs configured for preflight check.")
 
-    model = model_ids[0]
     cfg = types.GenerateContentConfig(
         temperature=0.0,
         max_output_tokens=20,
     )
-    try:
-        throttle_gemini_calls()
-        client.models.generate_content(model=model, contents="Respond exactly with: OK", config=cfg)
-        print(f"INFO: Preflight check succeeded with model '{model}'.")
-    except Exception as e:
-        msg = summarize_error(e)
-        print(f"WARN: Preflight check failed on model '{model}': {msg}")
-        if is_quota_error(e):
-            raise QuotaExceededError(f"Preflight quota/rate-limit failure on '{model}': {msg}") from e
-        raise RuntimeError(f"Preflight failed on '{model}': {msg}") from e
+    last_err: Optional[Exception] = None
+    quota_seen = False
+    for model in model_ids:
+        try:
+            throttle_gemini_calls()
+            client.models.generate_content(model=model, contents="Respond exactly with: OK", config=cfg)
+            print(f"INFO: Preflight check succeeded with model '{model}'.")
+            return
+        except Exception as e:
+            last_err = e
+            quota_seen = quota_seen or is_quota_error(e)
+            msg = summarize_error(e)
+            print(f"WARN: Preflight check failed on model '{model}': {msg}")
+
+    err_msg = summarize_error(last_err) if last_err else "unknown"
+    if quota_seen:
+        raise QuotaExceededError(f"Preflight quota/rate-limit failure after trying {model_ids}: {err_msg}") from last_err
+    raise RuntimeError(f"Preflight failed after trying {model_ids}: {err_msg}") from last_err
 
 
 def generate_with_fallback(
@@ -1168,7 +1315,8 @@ def main() -> None:
         print("OK: quality alert sent because no source candidates were collected.")
         return
 
-    if (cfg.get("email_v2") or {}).get("enabled", False):
+    email_v2_enabled = (cfg.get("email_v2") or {}).get("enabled", False)
+    if email_v2_enabled:
         prompt = build_newsroom_prompt(cfg, candidates, rejected_candidates)
     else:
         prompt = build_prompt(cfg, brevity)
@@ -1178,11 +1326,17 @@ def main() -> None:
     client = genai.Client(api_key=api_key)
 
     # System instruction for strict format and grounding enforcement
-    system_instruction = build_system_instruction(brevity)
+    if email_v2_enabled:
+        system_instruction = build_newsroom_system_instruction(cfg, brevity)
+        print("INFO: email_v2 enabled; using newsroom-only output contract over collected source records.")
+    else:
+        system_instruction = build_system_instruction(brevity)
     print("INFO: Omitted due to low confidence/impact: items below rubric threshold are intentionally excluded.")
 
-    # Google Search grounding tool
-    grounding_tool = types.Tool(google_search=types.GoogleSearch())
+    # Google Search grounding tool. v2 uses pre-collected source records; keep
+    # Gemini as a formatter unless explicitly re-enabled in config.
+    use_grounding = bool((cfg.get("email_v2") or {}).get("use_google_grounding", False)) if email_v2_enabled else True
+    grounding_tool = types.Tool(google_search=types.GoogleSearch()) if use_grounding else None
     base_max_tokens = int((cfg.get("model") or {}).get("max_output_tokens", 3800))
     base_temperature = float((cfg.get("model") or {}).get("temperature", 0.2))
     max_words = int(brevity.get("max_words", 1300))
@@ -1195,13 +1349,15 @@ def main() -> None:
     if not model_ids:
         raise RuntimeError("No non-retired model IDs are configured.")
 
-    primary_cfg = types.GenerateContentConfig(
-        system_instruction=system_instruction,
-        tools=[grounding_tool],
-        temperature=base_temperature,
-        top_p=0.95,
-        max_output_tokens=base_max_tokens,
-    )
+    primary_cfg_kwargs = {
+        "system_instruction": system_instruction,
+        "temperature": base_temperature,
+        "top_p": 0.95,
+        "max_output_tokens": base_max_tokens,
+    }
+    if grounding_tool is not None:
+        primary_cfg_kwargs["tools"] = [grounding_tool]
+    primary_cfg = types.GenerateContentConfig(**primary_cfg_kwargs)
 
     compression_cfg = types.GenerateContentConfig(
         system_instruction="You are an expert editor. Follow compression instructions exactly.",
@@ -1220,6 +1376,8 @@ def main() -> None:
             run_preflight_check(client, model_ids)
 
         response = generate_with_fallback(client, model_ids, prompt, primary_cfg)
+        generation_diagnostics = model_response_diagnostics(response)
+        log_generation_diagnostics(generation_diagnostics)
 
         initial_text = getattr(response, "text", "") or ""
         if not initial_text.strip():
@@ -1297,14 +1455,52 @@ def main() -> None:
                 f"domains={quality_diagnostics['source_domain_count']}"
             )
 
-        # Severe evidence diagnostics block delivery; minor citation diagnostics remain informational.
+        # Severe evidence diagnostics block model output. When source candidates
+        # exist, degrade to deterministic source-only output instead of sending
+        # only an operational alert.
         if quality_diagnostics["should_block"]:
             print(
                 "WARN: Briefing suppressed by quality gate "
                 f"blocking_codes={','.join(quality_diagnostics['blocking_codes'])}"
             )
+            write_text_artifact("gemini_blocked.md", final_markdown)
+            write_json_artifact(
+                "gemini_blocked_quality_report.json",
+                quality_report(
+                    final_markdown,
+                    quality_diagnostics,
+                    candidates,
+                    rejected_candidates,
+                    "gemini_blocked",
+                    generation_diagnostics,
+                ),
+            )
+            if (cfg.get("email_v2") or {}).get("source_only_fallback", True) and candidates:
+                send_source_only_digest(
+                    cfg=cfg,
+                    candidates=candidates,
+                    rejected_candidates=rejected_candidates,
+                    citation_thresholds=citation_thresholds,
+                    subject_prefix=subject_prefix,
+                    smtp_user=smtp_user,
+                    recipients=recipients,
+                    smtp_password=smtp_password,
+                    fallback_mode="source_only_quality_fallback",
+                    generation_diagnostics=generation_diagnostics,
+                )
+                return
             write_text_artifact("final_briefing.md", final_markdown)
-            write_json_artifact("quality_report.json", quality_report(final_markdown, quality_diagnostics, candidates, rejected_candidates, "gemini_blocked"))
+            write_json_artifact(
+                "quality_report.json",
+                quality_report(
+                    final_markdown,
+                    quality_diagnostics,
+                    candidates,
+                    rejected_candidates,
+                    "gemini_blocked",
+                    generation_diagnostics,
+                ),
+            )
             alert_subject = f"{subject_prefix} - quality alert - {today_iso_utc()}"
             alert_html = build_quality_alert_html(subject_prefix, quality_diagnostics)
             send_email(alert_subject, alert_html, smtp_user, recipients, smtp_password)
@@ -1335,7 +1531,10 @@ def main() -> None:
 
         html = markdown_to_html(final_markdown, footer_note=footer_note)
         write_text_artifact("final_briefing.md", final_markdown)
-        write_json_artifact("quality_report.json", quality_report(final_markdown, quality_diagnostics, candidates, rejected_candidates, "gemini"))
+        write_json_artifact(
+            "quality_report.json",
+            quality_report(final_markdown, quality_diagnostics, candidates, rejected_candidates, "gemini", generation_diagnostics),
+        )
 
         subject = f"{subject_prefix} — {today_iso_utc()}"
         send_email(subject, html, smtp_user, recipients, smtp_password)

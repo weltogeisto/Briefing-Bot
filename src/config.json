@@ -40,6 +40,12 @@
     },
     {
       "name": "Freistaat Sachsen",
+      "aliases": [
+        "Sachsen.digital",
+        "SID",
+        "Sächsische Informatik Dienste",
+        "Saechsische Informatik Dienste"
+      ],
       "active_projects_seed": [
         "SID initiatives",
         "Cloud migration",
@@ -177,6 +183,7 @@
     "account_match": 10,
     "official_source": 7,
     "procurement_project": 6,
+    "material_event": 5,
     "theme_match": 4,
     "regulatory": 1
   },
