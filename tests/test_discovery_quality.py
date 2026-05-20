@@ -678,3 +678,86 @@ def test_quota_alert_html_escapes_error_message():
     assert "<script>boom" not in html_out
     assert "&lt;script&gt;boom&lt;/script&gt;" in html_out
     assert "&amp; friends" in html_out
+
+
+def test_collector_rejects_generic_theme_only_trade_news_without_account_trigger():
+    sc = load_source_collection()
+    config = load_json("config.json")
+    source = {
+        "id": "trade-test",
+        "label": "Trade Test",
+        "type": "rss",
+        "tier": "trade",
+        "url": "https://example.com/feed.xml",
+        "enabled": True,
+    }
+    config["sources"] = [source]
+    rss = """<?xml version="1.0"?>
+<rss><channel>
+  <item>
+    <title>Cloud Anbieter stellt neue KI Funktionen fuer Unternehmen vor</title>
+    <link>https://example.com/generic-ai-cloud</link>
+    <description>Allgemeine Produktmeldung ohne benannten Public-Sector-Account, Vergabe oder Verwaltungsprojekt.</description>
+  </item>
+</channel></rss>"""
+
+    candidates, rejected = sc.collect_source_candidates(config, fetcher=lambda url: rss)
+
+    assert candidates == []
+    assert rejected[0]["title"] == "Cloud Anbieter stellt neue KI Funktionen fuer Unternehmen vor"
+    assert rejected[0]["rejection_reason"] == "below_relevance_threshold"
+
+
+def test_collector_rejects_official_ki_mentions_without_admin_it_action():
+    sc = load_source_collection()
+    config = load_json("config.json")
+    source = {
+        "id": "official-test",
+        "label": "Official Test",
+        "type": "rss",
+        "tier": "official",
+        "url": "https://example.gov/rss.xml",
+        "enabled": True,
+    }
+    config["sources"] = [source]
+    rss = """<?xml version="1.0"?>
+<rss><channel>
+  <item>
+    <title>Minister besucht Schule und informiert sich ueber KI im Unterricht</title>
+    <link>https://example.gov/schulbesuch-ki</link>
+    <description>Terminbericht zu Bildungspolitik und Unterrichtspraxis.</description>
+  </item>
+</channel></rss>"""
+
+    candidates, rejected = sc.collect_source_candidates(config, fetcher=lambda url: rss)
+
+    assert candidates == []
+    assert any(item.get("rejection_reason") == "below_relevance_threshold" for item in rejected)
+
+
+def test_collector_keeps_named_account_procurement_project_trigger():
+    sc = load_source_collection()
+    config = load_json("config.json")
+    source = {
+        "id": "trade-test",
+        "label": "Trade Test",
+        "type": "rss",
+        "tier": "trade",
+        "url": "https://example.com/feed.xml",
+        "enabled": True,
+    }
+    config["sources"] = [source]
+    rss = """<?xml version="1.0"?>
+<rss><channel>
+  <item>
+    <title>BVA vergibt Rahmenvertrag fuer Registermodernisierung</title>
+    <link>https://example.com/bva-registermodernisierung</link>
+    <description>Der Auftrag betrifft Identity und Portalmodernisierung im Bundesverwaltungsamt.</description>
+  </item>
+</channel></rss>"""
+
+    candidates, rejected = sc.collect_source_candidates(config, fetcher=lambda url: rss)
+
+    assert [candidate["title"] for candidate in candidates] == ["BVA vergibt Rahmenvertrag fuer Registermodernisierung"]
+    assert candidates[0]["account_matches"] == ["BVA (Bundesverwaltungsamt)"]
+    assert "procurement_project" in candidates[0]["score_reasons"]
