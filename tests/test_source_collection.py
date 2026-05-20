@@ -49,6 +49,7 @@ def test_rss_candidates_normalize_to_stable_records():
             "procurement_hits": [],
             "regulatory_hits": [],
             "event_types": ["role_change"],
+            "admin_it_action_hits": ["digitale verwaltung"],
             "collected_at": "2026-04-28T06:30:00Z",
         }
     ]
