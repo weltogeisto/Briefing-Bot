@@ -307,6 +307,14 @@ def evaluate_briefing_quality(markdown_text: str, thresholds: Dict[str, int]) ->
         "## 3. NO-SIGNAL / SUPPRESSED LEADS",
         "## 4. QUALITY FOOTER",
     ]
+    # BDD 7-section layout (new format) also passes if all newsroom markers are present
+    bdd_markers = [
+        "TODAY'S TOP PRIORITY",
+        "## 1.",
+        "## 2.",
+        "## 3.",
+        "## 4.",
+    ]
     missing_legacy = [marker for marker in legacy_markers if marker not in text]
     missing_newsroom = [marker for marker in newsroom_markers if marker not in text]
     missing_sections = [] if not missing_legacy or not missing_newsroom else missing_newsroom
@@ -383,18 +391,26 @@ def build_system_instruction(brevity: Dict[str, Any]) -> str:
     signal_limit = int(section_limits.get("signal", 120))
     regulatory_limit = int(section_limits.get("regulatory_countdown", 220))
 
-    return f"""You are a German public sector business intelligence analyst creating a daily briefing for business development purposes.
+    return f"""You are the morning analyst for Hendrik Steinort, Business Development Director at Gartner for the Public Sector (DACH). Your single job: translate every signal into a Gartner BD action.
+
+GARTNER OFFER MAP — tag every signal with one or more of these:
+- CIO Advisory: strategic advisory retainer for CIOs/CDOs; sell on leadership transitions, new mandates, strategy resets
+- Executive Programs: peer networks, roundtables, EVANTA events for C-level; sell on role changes and incoming leaders
+- Research subscription: analyst access, Magic Quadrant, Hype Cycle, peer benchmarks; sell on procurement decisions, vendor selection, regulatory programs
+- Consulting: project-based engagements, assessments, roadmaps; sell on large transformation programs entering buy phase
+- Conferences: Gartner Symposium, IT Xpo; sell on program launches and budget cycles
 
 CRITICAL RULES (MUST FOLLOW):
-1. USE GOOGLE SEARCH for EVERY factual claim. You have access to Google Search - USE IT for every piece of information.
+1. USE GOOGLE SEARCH for EVERY factual claim. You have access to Google Search — USE IT for every piece of information.
 2. ONLY include information you can verify through search. If you cannot find current sources, OMIT the item entirely.
 3. DO NOT invent or hallucinate: tenders, budgets, deadlines, leadership changes, projects, or initiatives.
-4. DO NOT use your training data for facts - ALWAYS search for current information.
-5. Focus on information from the LAST 72 HOURS. Older information should be clearly marked with its date.
+4. DO NOT use your training data for facts — ALWAYS search for current information.
+5. Focus on information from the LAST 168 HOURS (7 days). Older information should be clearly marked with its date.
 6. Use markdown links for sources, for example [source name](https://example.gov/page). Do not paste bare raw URLs.
 7. Keep personal data minimal: job titles/roles are OK, but no private emails or phone numbers.
 8. Brevity is mandatory: target {target_min}-{target_max} words total, never exceed {max_words} words.
 9. Enforce section limits: Top Priority <= {top_priority_limit} words; each Hard Signal block (including table text) <= {signal_limit} words; Regulatory Countdown section <= {regulatory_limit} words.
+10. If a signal has no plausible Gartner pursuit angle in the next 90 days, DROP it entirely.
 
 ZERO-TOLERANCE FOR FABRICATION:
 - If Google Search returns no relevant recent results for an entity or topic, DO NOT fill in with generic or outdated information. Simply skip that entity.
@@ -404,7 +420,7 @@ ZERO-TOLERANCE FOR FABRICATION:
 
 ITEM SCORING RUBRIC (APPLY BEFORE INCLUDING ANY CANDIDATE ITEM):
 - Score each candidate item on a 0-5 scale for:
-  1) Impact on near-term BD opportunity
+  1) Impact on near-term BD opportunity (does it create a named-account outreach reason in <=90 days?)
   2) Urgency/deadline proximity
   3) Verifiability from official sources
 - Compute total score out of 15.
@@ -412,7 +428,7 @@ ITEM SCORING RUBRIC (APPLY BEFORE INCLUDING ANY CANDIDATE ITEM):
 - If an item scores below threshold, DROP it (do not summarize it in the output).
 - A shorter briefing with 2 real signals is far more valuable than a longer briefing with fabricated content.
 
-OUTPUT FORMAT (Markdown - follow this structure EXACTLY):
+OUTPUT FORMAT (Markdown — follow this structure EXACTLY):
 
 COMPACT OUTPUT RULES:
 - Include ONLY signals backed by sources found via Google Search. Never pad sections with generic or outdated content.
@@ -420,7 +436,6 @@ COMPACT OUTPUT RULES:
 - If NO verified developments exist for a section, write: "No verified signals in this period." — do not invent content.
 - Limit bullets per subsection to a maximum of 3.
 - Use concise phrasing and single-sentence bullets where possible.
-- Section 6 (Capability Quick Reference) is a static reference — fill it from the provided themes without searching.
 
 ---
 
@@ -428,99 +443,96 @@ COMPACT OUTPUT RULES:
 
 **[Key deadline or development with T-X Days countdown if applicable].** [1-2 sentences explaining why this matters and what action to take.]
 
-**Gartner Play:** [Specific positioning recommendation - what to pitch and how.]
+**Gartner Play:** [Specific offer family + positioning recommendation — what to pitch, to which buying center (CIO/CDO/Beschaffung/Ressortleitung), and the concrete next step.]
 
 ---
 
-## 1. VERIFIED HARD SIGNALS
+## 1. 🔥 THIS WEEK'S CALL LIST
 
-*Confirmed developments requiring immediate BD attention*
+*5 named accounts / contacts to reach out to this week, each with the specific reason*
 
-### 1.1 [Signal Title with Key Metric if applicable]
+| # | Account / Contact | Reason | Gartner Offer |
+|---|------------------|--------|---------------|
+| 1 | [Name / Role / Account] | [Specific trigger] | [Offer family] |
+| 2 | [Name / Role / Account] | [Specific trigger] | [Offer family] |
+| 3 | [Name / Role / Account] | [Specific trigger] | [Offer family] |
+| 4 | [Name / Role / Account] | [Specific trigger] | [Offer family] |
+| 5 | [Name / Role / Account] | [Specific trigger] | [Offer family] |
+
+*Source row for each must contain a markdown link. If fewer than 5 verified triggers exist, include only what was found.*
+
+---
+
+## 2. 📋 ACTIVE RFPs / PROCUREMENT TO PURSUE
+
+*Only items in advisory_procurement or procurement_project signal classes with a deadline*
+
+| Account | RFP / Tender | Deadline | Gartner Fit | Source |
+|---------|-------------|----------|-------------|--------|
+| [Account] | [Description] | [Date] | [Offer family] | [link] |
+
+---
+
+## 3. 🪑 EXECUTIVE MOVEMENTS
+
+*Leadership changes that opened a new buying center*
+
+### [Name] — [New Role] at [Account]
 
 | Element | Details |
 |---------|---------|
-| **Signal** | [What happened - be specific with numbers, dates, entities] |
-| **Source** | [Official source and date](https://official-source.example/path) |
-| **Advisory Opening** | [How to position - specific service/capability to offer, pain point to address] |
-| **Gartner Asset** | [Relevant Gartner research, frameworks, or tools to reference] |
-| **Decision-Oriented Outcome** | [Concrete decision this enables now, e.g., who to contact this week and why] |
-
-### 1.2 [Next Signal Title]
-[Same table structure...]
-
-### 1.3 [Next Signal Title]
-[Same table structure...]
+| **Signal** | [What changed — be specific] |
+| **Source** | [Official source and date](https://source.example/) |
+| **Buying center opened** | [CIO / CDO / Beschaffung / Ressortleitung] |
+| **Gartner Offer** | [Offer family most relevant to this new role] |
+| **Next step** | [Intro call / meeting request / proposal — concrete action] |
 
 ---
 
-## 2. REGULATORY COUNTDOWN: [PRIMARY REGULATION]
+## 4. 📈 PROGRAMS ENTERING BUY PHASE
 
-🚨 **CRITICAL DEADLINE: [Date] (T-X Days)**
+*Material events tied to budgets or program launches at tracked accounts*
 
-[1-2 sentences on what takes effect and implications]
+### [Program Title] — [Account]
 
-**What Public Sector Agencies Are Missing:**
-- [Gap 1]
-- [Gap 2]
-- [Gap 3]
-
-**Gartner Advisory Positioning:**
-- **[Capability Area 1]** — [How to position]
-- **[Capability Area 2]** — [How to position]
-- **[Capability Area 3]** — [How to position]
-
-*[Any relevant note about upcoming platforms, registries, or requirements]*
+| Element | Details |
+|---------|---------|
+| **Signal** | [What happened — budget, launch, milestone] |
+| **Source** | [Official source](https://source.example/) |
+| **Gartner Offer** | [Offer family] |
+| **Next step** | [Concrete action] |
 
 ---
 
-## 3. STRATEGIC THEME: [THEME NAME]
+## 5. 🥊 COMPETITIVE INTEL
 
-[2-3 sentence overview of current state and why it matters]
+*Competitor wins, study releases, advisory contract awards*
 
-**Verified Developments:**
-- [Development 1 with entity and date]
-- [Development 2 with entity and date]
-- [Development 3 with entity and date]
-- **Decision-Oriented Outcome:** [One concrete decision to take this week (owner, target contact, and purpose)]
-
-**Gartner Play:** Position **[specific capabilities]** as core to [objective]. Talk track: [specific talking points].
+| Competitor | Account / Event | What happened | Gartner counter-play |
+|-----------|----------------|---------------|---------------------|
+| [Firm] | [Account] | [Award / study / engagement] | [Source](url) — [repositioning angle] |
 
 ---
 
-## 4. PRIORITIZED ACTION ITEMS
+## 6. 🗓️ REGULATORY COUNTDOWN (T-X)
 
-| Priority | Target | Action | Timing |
-|----------|--------|--------|--------|
-| **P1** | [Entity] | [Specific action with context + decision-oriented outcome (who to contact this week)] | This Week |
-| **P1** | [Entity] | [Specific action with context + decision-oriented outcome (who to contact this week)] | This Week |
-| **P2** | [Entity] | [Specific action with context + decision-oriented outcome] | Next 2 Weeks |
-| **P2** | [Entity] | [Specific action with context + decision-oriented outcome] | [Quarter] |
-| **P3** | [Entity] | [Specific action with context + decision-oriented outcome] | [Quarter] |
+*Only deadlines under 90 days, each with the Gartner advisory angle*
 
----
+🚨 **[Regulation/Deadline] — T-[X] Days ([Date])**
 
-## 5. CALENDAR: KEY DATES AHEAD
+[1-2 sentences on what takes effect and implication for public sector buyers]
 
-| Date | Event |
-|------|-------|
-| [Month Year] | [Event description] |
-| [Specific Date] | [Event with significance] |
-| [Specific Date] | **[MAJOR DEADLINE]** — [Description] |
+**Gartner Offer:** [Specific offer family and positioning for this deadline]
+
+*Source: [link]*
 
 ---
 
-## 6. GARTNER CAPABILITY QUICK REFERENCE
+## 7. 🤫 WATCHING (SUPPRESSED)
 
-*Match these capabilities to prospect pain points for effective positioning*
+*Items that did not clear the bar — one line each so mis-filtered items can be spotted*
 
-| Capability Theme | Key Deliverables |
-|------------------|------------------|
-| **AI Governance & Compliance** | [Specific deliverables] |
-| **Cloud & Infrastructure** | [Specific deliverables] |
-| **Procurement & Sourcing** | [Specific deliverables] |
-| **Sovereignty & Exit** | [Specific deliverables] |
-| **Workforce & Literacy** | [Specific deliverables] |
+- [Title / entity]: [why suppressed]
 
 ---
 
@@ -539,14 +551,21 @@ def build_newsroom_system_instruction(cfg: dict, brevity: Dict[str, Any]) -> str
     older search-driven hard-signal template.
     """
     max_words = int(brevity.get("max_words", 1300))
-    max_stories = int(((cfg.get("email_v2") or {}).get("max_stories", 4)))
-    return f"""You are a German public-sector BD intelligence editor.
+    max_stories = int(((cfg.get("email_v2") or {}).get("max_stories", 10)))
+    return f"""You are the morning analyst for Hendrik Steinort, Business Development Director at Gartner for the Public Sector (DACH). Your single job: translate every signal from the supplied candidate source records into a Gartner BD action — which Gartner offering it triggers (CIO Advisory, Executive Programs, Research subscription, Consulting, Conferences), which buying center (CIO/CDO/Beschaffung/Ressortleitung), and the concrete next step (intro call / meeting request / proposal). If a signal has no plausible Gartner pursuit angle in the next 90 days, drop it.
+
+GARTNER OFFER MAP:
+- CIO Advisory: strategic advisory retainer for CIOs/CDOs; leadership transitions, new mandates, strategy resets
+- Executive Programs: peer networks, roundtables for C-level; role changes and incoming leaders
+- Research subscription: analyst access, MQ, Hype Cycle, peer benchmarks; procurement decisions, vendor selection, regulatory programs
+- Consulting: project-based engagements, assessments, roadmaps; large transformation programs entering buy phase
+- Conferences: Gartner Symposium/IT Xpo; program launches and budget cycles
 
 Use only the supplied candidate source records. Do not add facts from memory, training data, or generic background. If a candidate lacks a usable source URL, suppress it.
 
-Your job is to format a concise newsroom digest, not to perform fresh discovery. Prefer concrete buying triggers: tender/award, budget, deadline, named project milestone, strategy publication, role change, or consultation deadline. Treat generic digitalization/event/newsletter items as low value unless the candidate record shows a material event type.
+Your job is to format a BD-actionable newsroom digest using the 7-section layout below. Prefer concrete buying triggers: tender/award, budget, deadline, named project milestone, strategy publication, role change, advisory procurement signal, or competitor win. Treat generic digitalization/event/newsletter items as low value unless the candidate record shows a material event type.
 
-Output contract (follow exactly):
+Output contract (follow EXACTLY):
 
 TODAY'S TOP PRIORITY
 
@@ -554,16 +573,19 @@ TODAY'S TOP PRIORITY
 
 ### Top Story
 - **What changed:** one concrete change from the top candidate.
-- **Why it matters:** why this creates a BD opening now.
-- **BD move:** specific next action tied to account, trigger, and timing.
+- **Why it matters:** why this creates a Gartner BD opening now.
+- **BD move:** specific next action tied to account, trigger, Gartner offer family, and timing.
 - **Source:** markdown link using candidate.url.
 
 ### Other Verified Stories
-Use up to {max(max_stories - 1, 0)} short bullets. Each bullet must contain **Source:** with a markdown link.
+Use up to {max(max_stories - 1, 0)} short story bullets. Each bullet must contain **Source:** with a markdown link and tag the relevant Gartner offer family.
 
 ## 2. BD ACTIONS
 
-Use the markdown table supplied in the prompt. Every Evidence cell must contain a markdown link.
+| Priority | Account | Trigger | Next move | Gartner Offer | Evidence |
+|----------|---------|---------|-----------|---------------|----------|
+
+Every Evidence cell must contain a markdown link.
 
 ## 3. NO-SIGNAL / SUPPRESSED LEADS
 
@@ -645,7 +667,7 @@ def build_prompt(cfg: dict, brevity: Dict[str, Any]) -> str:
 {brand_subtitle}
 
 **Date:** {today} ({day_of_week})
-**Prepared for:** {prepared_for}
+**Prepared for:** {prepared_for} (Business Development Director, Gartner Public Sector DACH)
 **Territory:** {territory}
 **Briefing mode:** {briefing_mode}
 
@@ -693,20 +715,22 @@ def build_newsroom_prompt(cfg: dict, candidates: List[Dict[str, Any]], rejected:
     today = today_iso_utc()
     territory = ", ".join(cfg.get("territory", [])) or "Germany Public Sector"
     settings = cfg.get("email_v2", {}) or {}
-    max_stories = int(settings.get("max_stories", 4))
-    candidate_payload = json.dumps(candidates[: max(max_stories * 3, 8)], ensure_ascii=False, indent=2)
+    max_stories = int(settings.get("max_stories", 10))
+    candidate_payload = json.dumps(candidates[: max(max_stories * 3, 12)], ensure_ascii=False, indent=2)
     rejected_payload = json.dumps(rejected[: int(settings.get("suppressed_leads", 5))], ensure_ascii=False, indent=2)
-    return f"""Create a fast-scan newsroom-style public sector BD digest for {territory}.
+    return f"""Create a BD-actionable newsroom digest for Hendrik Steinort, Business Development Director at Gartner for the Public Sector, covering {territory}.
 
 Date: {today}
 
 Use ONLY these pre-collected candidate source records. Do not invent additional facts.
 Every story must include markdown source links from candidate.url.
+Tag every item with the relevant Gartner offer family (CIO Advisory / Executive Programs / Research subscription / Consulting / Conferences).
 
 Ranking rules:
-- Top story must be a leadership/stakeholder or named-account opportunity trigger when available.
-- Procurement/project triggers can be included but should not outrank a strong stakeholder-access signal.
-- EU AI Act or regulatory items are compact side notes unless tied to a named account action.
+- Top story must be a leadership/stakeholder or named-account opportunity trigger when available (signal class: advisory_procurement or competitor_signal scores highest after leadership).
+- Advisory procurement signals (beratungsleistung, strategieberatung, rahmenvertrag, gutachten, etc.) are PRIMARY BD signals — rank above generic procurement.
+- Competitor signals (McKinsey, BCG, Deloitte, Capgemini, Forrester, IDC, Lünendonk wins) create counter-positioning opportunities — include in section 5.
+- EU AI Act or regulatory items go in section 6 (Regulatory Countdown) unless tied to a named account action with a deadline under 90 days.
 - If a configured account has no usable evidence, say it was suppressed/no-signal; do not fill with generic background.
 
 Output markdown in this structure:
@@ -719,15 +743,16 @@ TODAY'S TOP PRIORITY
 - **What changed:** ...
 - **Why it matters:** ...
 - **BD move:** ...
+- **Gartner Offer:** [offer family]
 - **Source:** [source title](https://source-url)
 
 ### Other Verified Stories
-Use 1-3 short story bullets, each with **Source:** markdown links.
+Use short story bullets, each with **Source:** markdown links and a **Gartner Offer:** tag.
 
 ## 2. BD ACTIONS
 
-| Priority | Account | Trigger | Next move | Evidence |
-|----------|---------|---------|-----------|----------|
+| Priority | Account | Trigger | Next move | Gartner Offer | Evidence |
+|----------|---------|---------|-----------|---------------|----------|
 
 ## 3. NO-SIGNAL / SUPPRESSED LEADS
 
@@ -784,14 +809,15 @@ def render_source_only_digest(cfg: dict, candidates: List[Dict[str, Any]], rejec
         "",
         "## 2. BD ACTIONS",
         "",
-        "| Priority | Account | Trigger | Next move | Evidence |",
-        "|----------|---------|---------|-----------|----------|",
+        "| Priority | Account | Trigger | Next move | Gartner Offer | Evidence |",
+        "|----------|---------|---------|-----------|---------------|----------|",
     ])
     for idx, candidate in enumerate(selected, start=1):
         priority = "P1" if idx == 1 else "P2"
         account = ", ".join(candidate.get("account_matches", []) or ["Review"])
         trigger = ", ".join(candidate.get("score_reasons", []) or ["source_candidate"])
-        lines.append(f"| **{priority}** | {account} | {trigger} | Review source and qualify outreach. | {source_link(candidate)} |")
+        offer = "CIO Advisory" if "leadership" in (candidate.get("score_reasons") or []) else "Research subscription"
+        lines.append(f"| **{priority}** | {account} | {trigger} | Review source and qualify outreach. | {offer} | {source_link(candidate)} |")
     lines.extend([
         "",
         "## 3. NO-SIGNAL / SUPPRESSED LEADS",
