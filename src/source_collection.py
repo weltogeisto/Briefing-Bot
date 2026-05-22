@@ -110,6 +110,40 @@ REGULATORY_TERMS = [
     "compliance",
 ]
 
+ADVISORY_PROCUREMENT_TERMS = [
+    "beratungsleistung",
+    "unternehmensberatung",
+    "marktforschung",
+    "marktstudie",
+    "analyst services",
+    "research subscription",
+    "rahmenvertrag beratung",
+    "strategieberatung",
+    "gutachten",
+    "evaluation",
+    "rahmenvertrag it-beratung",
+    "beratungsrahmenvertrag",
+    "vergabe beratung",
+]
+
+COMPETITOR_SIGNAL_TERMS = [
+    "McKinsey",
+    "BCG",
+    "Boston Consulting",
+    "Bain",
+    "Deloitte",
+    "Capgemini",
+    "Accenture",
+    "PwC",
+    "KPMG",
+    "Roland Berger",
+    "Forrester",
+    "IDC",
+    "Lünendonk",
+    "Luenendonk",
+    "Detecon",
+]
+
 BOUNDARY_TERMS = {
     "ki",
     "auftrag",
@@ -319,6 +353,8 @@ def make_candidate(
     leadership_hits = term_hits(text, LEADERSHIP_TERMS)
     procurement_hits = term_hits(text, PROCUREMENT_TERMS)
     regulatory_hits = term_hits(text, REGULATORY_TERMS)
+    advisory_procurement_hits = term_hits(text, ADVISORY_PROCUREMENT_TERMS)
+    competitor_signal_hits = term_hits(text, COMPETITOR_SIGNAL_TERMS)
     event_types = event_type_hits(text, leadership_hits, procurement_hits)
     return {
         "title": title,
@@ -335,6 +371,8 @@ def make_candidate(
         "leadership_hits": leadership_hits,
         "procurement_hits": procurement_hits,
         "regulatory_hits": regulatory_hits,
+        "advisory_procurement_hits": advisory_procurement_hits,
+        "competitor_signal_hits": competitor_signal_hits,
         "event_types": event_types,
         "collected_at": collected_at,
     }
@@ -444,31 +482,39 @@ def score_candidate(candidate: Dict[str, Any], cfg: dict) -> Dict[str, Any]:
     event_types_known = isinstance(event_types, list)
     event_types = event_types or []
     if candidate.get("leadership_hits") and (not event_types_known or "role_change" in event_types):
-        score += int(weights.get("leadership", 12))
+        score += int(weights.get("leadership", 14))
         reasons.append("leadership")
     if candidate.get("account_matches"):
         score += int(weights.get("account_match", 10))
         reasons.append("account_match")
+    if candidate.get("advisory_procurement_hits"):
+        score += int(weights.get("advisory_procurement", 14))
+        reasons.append("advisory_procurement")
+    if candidate.get("competitor_signal_hits"):
+        score += int(weights.get("competitor_signal", 10))
+        reasons.append("competitor_signal")
     if candidate.get("source_tier") == "official":
-        score += int(weights.get("official_source", 7))
+        score += int(weights.get("official_source", 5))
         reasons.append("official_source")
     if candidate.get("procurement_hits"):
-        score += int(weights.get("procurement_project", 6))
+        score += int(weights.get("procurement_project", 8))
         reasons.append("procurement_project")
     if event_types:
         score += int(weights.get("material_event", 5))
         reasons.append("material_event")
     if candidate.get("theme_matches"):
-        score += int(weights.get("theme_match", 4))
+        score += int(weights.get("theme_match", 3))
         reasons.append("theme_match")
     if candidate.get("regulatory_hits"):
-        score += int(weights.get("regulatory", 1))
+        score += int(weights.get("regulatory", 8))
         reasons.append("regulatory")
     candidate = dict(candidate)
     candidate["score"] = score
     candidate["score_reasons"] = reasons
     candidate["is_regulatory_only"] = bool(candidate.get("regulatory_hits")) and not (
-        candidate.get("account_matches") or candidate.get("leadership_hits") or candidate.get("procurement_hits")
+        candidate.get("account_matches") or candidate.get("leadership_hits")
+        or candidate.get("procurement_hits") or candidate.get("advisory_procurement_hits")
+        or candidate.get("competitor_signal_hits")
     )
     return candidate
 
@@ -514,7 +560,12 @@ def split_relevance(candidates: List[Dict[str, Any]]) -> Tuple[List[Dict[str, An
         theme_material = "theme_match" in reasons and has_material_event
         regulatory_material = "regulatory" in reasons and ("deadline" in event_types or "account_match" in reasons)
         named_account_material = "account_match" in reasons and has_material_event
-        if procurement_portal_hit or trade_account_material or digital_leadership or theme_material or regulatory_material or named_account_material:
+        # New BD-specific signal classes: always pass through regardless of event_type
+        advisory_procurement_signal = "advisory_procurement" in reasons
+        competitor_signal = "competitor_signal" in reasons
+        if (procurement_portal_hit or trade_account_material or digital_leadership or theme_material
+                or regulatory_material or named_account_material
+                or advisory_procurement_signal or competitor_signal):
             kept.append(candidate)
         else:
             rejected.append({**candidate, "rejection_reason": "below_relevance_threshold"})
