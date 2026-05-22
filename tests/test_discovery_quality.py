@@ -566,7 +566,7 @@ def test_newsroom_prompt_contains_only_structured_candidates_with_urls():
     assert "Candidate source records" in prompt
     assert "https://www.sachsen.de/news/cio-leitung" in prompt
     assert "Top story must be a leadership/stakeholder" in prompt
-    assert "EU AI Act or regulatory items are compact side notes" in prompt
+    assert "Gartner offer family" in prompt
 
 
 def test_main_sends_quality_alert_when_collector_finds_no_candidates(monkeypatch):
