@@ -1,14 +1,14 @@
 {
   "brand": {
-    "title": "PUBLIC SECTOR DAILY",
-    "subtitle": "Business Intelligence Briefing"
+    "title": "GARTNER PUBLIC SECTOR DAILY",
+    "subtitle": "BD Intelligence Briefing — Hendrik Steinort, Business Development Director"
   },
-  "prepared_for": "Business Development Team",
+  "prepared_for": "Hendrik Steinort, Business Development Director, Gartner Public Sector DACH",
   "territory": [
     "Germany Public Sector"
   ],
   "briefing_mode": "compact",
-  "lookback_hours": 72,
+  "lookback_hours": 168,
   "accounts": [
     {
       "name": "FITKO (IT-Planungsrat)",
@@ -101,6 +101,187 @@
         "Shared services lead",
         "Procurement"
       ]
+    },
+    {
+      "name": "BMI (Bundesministerium des Innern)",
+      "aliases": [
+        "BMI-Hausleitung",
+        "CIO Bund",
+        "Bundesministerium des Innern und für Heimat",
+        "Bundesinnenministerium"
+      ],
+      "active_projects_seed": [
+        "Nationale Sicherheitsstrategie IT",
+        "Digitalstrategie Bund",
+        "Verwaltungsmodernisierung Bund"
+      ],
+      "contact_roles_seed": [
+        "Bundesminister / Staatssekretär",
+        "CIO der Bundesregierung",
+        "Abteilung IT und Verwaltungsdigitalisierung",
+        "Beschaffung / Vergabestelle"
+      ]
+    },
+    {
+      "name": "ITZBund (Informationstechnikzentrum Bund)",
+      "aliases": [
+        "ITZ Bund",
+        "Informationstechnikzentrum"
+      ],
+      "active_projects_seed": [
+        "Bundescloud / Cloud der Bundesverwaltung",
+        "IT-Konsolidierung Bund",
+        "Rechenzentrum-Modernisierung"
+      ],
+      "contact_roles_seed": [
+        "Präsident / Vizepräsident",
+        "CIO / IT-Leitung",
+        "Strategische Beschaffung",
+        "Sicherheitsbeauftragter"
+      ]
+    },
+    {
+      "name": "BWI GmbH (Bundeswehr IT)",
+      "aliases": [
+        "BWI",
+        "Bundeswehr Informationstechnik",
+        "BWI Informationstechnik"
+      ],
+      "active_projects_seed": [
+        "Herkules Nachfolge",
+        "Digitalisierung der Streitkräfte",
+        "IT-Sicherheit Bundeswehr"
+      ],
+      "contact_roles_seed": [
+        "Geschäftsführung BWI",
+        "CIO / CISO BWI",
+        "Strategische Beschaffung",
+        "Programmleitung"
+      ]
+    },
+    {
+      "name": "Bundesdruckerei / D-Trust",
+      "aliases": [
+        "Bundesdruckerei GmbH",
+        "D-Trust GmbH",
+        "Bundesdruckerei-Gruppe"
+      ],
+      "active_projects_seed": [
+        "eID-Infrastruktur",
+        "Digitale Identitäten Bund",
+        "PKI-Dienste öffentliche Hand"
+      ],
+      "contact_roles_seed": [
+        "Geschäftsführung",
+        "CTO / CISO",
+        "Strategie und Entwicklung",
+        "Public Sector Vertrieb"
+      ]
+    },
+    {
+      "name": "Beschaffungsamt des BMI",
+      "aliases": [
+        "BeschA",
+        "Beschaffungsamt Bundesministerium des Innern",
+        "BeschA BMI"
+      ],
+      "active_projects_seed": [
+        "Rahmenverträge IT-Beratung Bund",
+        "Ausschreibung Digitalisierungsberatung",
+        "Vergabe Marktforschung öffentliche Hand"
+      ],
+      "contact_roles_seed": [
+        "Präsident BeschA",
+        "Vergabestelle IT",
+        "Referatsleitung Beschaffung"
+      ]
+    },
+    {
+      "name": "BMF (Bundesministerium der Finanzen)",
+      "aliases": [
+        "Bundesfinanzministerium",
+        "Bundesministerium Finanzen"
+      ],
+      "active_projects_seed": [
+        "Haushaltssysteme Bund",
+        "Digitalisierung Finanzverwaltung",
+        "FinanzIT-Modernisierung"
+      ],
+      "contact_roles_seed": [
+        "Staatssekretär Finanzen",
+        "CIO / IT-Leitung BMF",
+        "Beschaffung"
+      ]
+    },
+    {
+      "name": "BMVg (Bundesministerium der Verteidigung)",
+      "aliases": [
+        "Bundesverteidigungsministerium",
+        "Bundesministerium Verteidigung"
+      ],
+      "active_projects_seed": [
+        "Digitalisierung Streitkräfte",
+        "Cyber- und Informationsdomäne",
+        "IT-Beschaffung Verteidigung"
+      ],
+      "contact_roles_seed": [
+        "Staatssekretär Verteidigung",
+        "CIO Bundeswehr",
+        "Beschaffungsamt Verteidigung"
+      ]
+    },
+    {
+      "name": "BMDV (Bundesministerium für Digitales und Verkehr)",
+      "aliases": [
+        "Bundesministerium Digitales Verkehr",
+        "Bundesdigitalministerium",
+        "BMDS"
+      ],
+      "active_projects_seed": [
+        "Gigabitstrategie",
+        "Digitalstrategie Deutschland",
+        "Intelligente Mobilität"
+      ],
+      "contact_roles_seed": [
+        "Staatssekretär Digital",
+        "CIO Bund / IT-Stab",
+        "Beschaffung"
+      ]
+    },
+    {
+      "name": "BMG (Bundesministerium für Gesundheit)",
+      "aliases": [
+        "Bundesgesundheitsministerium",
+        "Bundesministerium Gesundheit"
+      ],
+      "active_projects_seed": [
+        "Telematikinfrastruktur",
+        "Digitalisierung Gesundheitswesen",
+        "ePA / elektronische Patientenakte"
+      ],
+      "contact_roles_seed": [
+        "Staatssekretär Gesundheit",
+        "CIO / IT-Leitung BMG",
+        "gematik GmbH"
+      ]
+    },
+    {
+      "name": "AA (Auswärtiges Amt)",
+      "aliases": [
+        "Auswärtiges Amt",
+        "Außenministerium",
+        "German Foreign Office"
+      ],
+      "active_projects_seed": [
+        "Digitale Diplomatie",
+        "IT-Modernisierung Auswärtiges Amt",
+        "Sicheres Kommunikationsnetz"
+      ],
+      "contact_roles_seed": [
+        "Staatssekretär AA",
+        "CIO / IT-Leitung AA",
+        "Beschaffung AA"
+      ]
     }
   ],
   "regulatory_items": [
@@ -173,20 +354,54 @@
   "email_v2": {
     "enabled": true,
     "style": "newsroom_digest",
-    "max_stories": 4,
+    "max_stories": 10,
     "suppressed_leads": 5,
     "source_only_fallback": true,
     "top_priority": "leadership_stakeholder_account_trigger"
   },
   "ranking": {
-    "leadership": 12,
+    "leadership": 14,
     "account_match": 10,
-    "official_source": 7,
-    "procurement_project": 6,
+    "advisory_procurement": 14,
+    "competitor_signal": 10,
+    "procurement_project": 8,
     "material_event": 5,
-    "theme_match": 4,
-    "regulatory": 1
+    "official_source": 5,
+    "theme_match": 3,
+    "regulatory": 8
   },
+  "advisory_procurement_keywords": [
+    "beratungsleistung",
+    "unternehmensberatung",
+    "marktforschung",
+    "marktstudie",
+    "analyst services",
+    "research subscription",
+    "rahmenvertrag beratung",
+    "strategieberatung",
+    "gutachten",
+    "evaluation",
+    "rahmenvertrag it-beratung",
+    "beratungsrahmenvertrag",
+    "vergabe beratung"
+  ],
+  "competitor_signal_keywords": [
+    "McKinsey",
+    "BCG",
+    "Boston Consulting",
+    "Bain",
+    "Deloitte",
+    "Capgemini",
+    "Accenture",
+    "PwC",
+    "KPMG",
+    "Roland Berger",
+    "Forrester",
+    "IDC",
+    "Lünendonk",
+    "Luenendonk",
+    "Detecon"
+  ],
   "sources": [
     {
       "id": "sachsen-anhalt-ministerien-rss",
@@ -450,6 +665,78 @@
       "type": "html_page",
       "tier": "trade",
       "url": "https://www.egovernment.de/",
+      "enabled": true
+    },
+    {
+      "id": "beschaffungsamt-bmi-news",
+      "label": "Beschaffungsamt des BMI",
+      "type": "html_page",
+      "tier": "procurement",
+      "url": "https://www.beschaffungsamt.de/Beschaffungsamt/DE/News/news_node.html",
+      "enabled": true
+    },
+    {
+      "id": "itzbund-press",
+      "label": "ITZBund Pressemitteilungen",
+      "type": "html_page",
+      "tier": "official",
+      "url": "https://www.itzbund.de/DE/itzbund/presse/pressemitteilungen/pressemitteilungen_node.html",
+      "enabled": true
+    },
+    {
+      "id": "bwi-press",
+      "label": "BWI GmbH Presse",
+      "type": "html_page",
+      "tier": "official",
+      "url": "https://www.bwi.de/news-und-presse/pressemeldungen",
+      "enabled": true
+    },
+    {
+      "id": "bundesdruckerei-press",
+      "label": "Bundesdruckerei Pressemitteilungen",
+      "type": "html_page",
+      "tier": "official",
+      "url": "https://www.bundesdruckerei.de/de/presse",
+      "enabled": true
+    },
+    {
+      "id": "bitkom-press",
+      "label": "Bitkom Pressemitteilungen",
+      "type": "html_page",
+      "tier": "competitor_intel",
+      "url": "https://www.bitkom.org/Presse/Presseinformation",
+      "enabled": true
+    },
+    {
+      "id": "luenendonk-news",
+      "label": "Lünendonk Studien und News",
+      "type": "html_page",
+      "tier": "competitor_intel",
+      "url": "https://luenendonk.de/aktuelles/",
+      "enabled": true
+    },
+    {
+      "id": "kgst-news",
+      "label": "KGSt Neuigkeiten",
+      "type": "html_page",
+      "tier": "official",
+      "url": "https://www.kgst.de/aktuelles",
+      "enabled": true
+    },
+    {
+      "id": "bundestag-drucksachen",
+      "label": "Bundestag Drucksachen IT/Digitalisierung",
+      "type": "html_page",
+      "tier": "official",
+      "url": "https://www.bundestag.de/ajax/filterData?itemsPerPage=20&noFilterSet=false&searchTerm=Digitalisierung+IT&startDate=&endDate=&documentTypes%5B%5D=Drucksache&sort=date&view=list",
+      "enabled": true
+    },
+    {
+      "id": "bmi-press",
+      "label": "BMI Bundesministerium des Innern Presse",
+      "type": "html_page",
+      "tier": "official",
+      "url": "https://www.bmi.bund.de/DE/newsroom/presse/pressemitteilungen/pressemitteilungen-node.html",
       "enabled": true
     }
   ],
