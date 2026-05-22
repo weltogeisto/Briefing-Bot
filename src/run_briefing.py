@@ -307,14 +307,6 @@ def evaluate_briefing_quality(markdown_text: str, thresholds: Dict[str, int]) ->
         "## 3. NO-SIGNAL / SUPPRESSED LEADS",
         "## 4. QUALITY FOOTER",
     ]
-    # BDD 7-section layout (new format) also passes if all newsroom markers are present
-    bdd_markers = [
-        "TODAY'S TOP PRIORITY",
-        "## 1.",
-        "## 2.",
-        "## 3.",
-        "## 4.",
-    ]
     missing_legacy = [marker for marker in legacy_markers if marker not in text]
     missing_newsroom = [marker for marker in newsroom_markers if marker not in text]
     missing_sections = [] if not missing_legacy or not missing_newsroom else missing_newsroom
