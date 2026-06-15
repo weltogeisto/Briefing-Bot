@@ -1,6 +1,21 @@
 # Public Sector Daily Briefing Bot
 
-This repo sends a daily email briefing for German public sector business development. The current v2 flow is collector-first: it gathers public source candidates before Gemini writes anything, ranks them for BD relevance, and only sends a briefing when the evidence is strong enough.
+This repo sends a daily email briefing for German public sector business development.
+
+## Primary architecture: Claude Routine (recommended)
+
+The strongest setup runs the briefing as a **[Claude Routine](https://claude.ai/code/routines)** — a daily scheduled Claude Code cloud session. Claude is the engine: it discovers stories with live web search, judges BD relevance by reasoning (not keyword matching), writes the newsroom digest, and emails it via Gmail SMTP. This replaces the brittle scraper and the small format-only model with a single agent.
+
+- **Setup and operating instructions:** see [`ROUTINE.md`](ROUTINE.md).
+- **Curation:** still lives in `src/config.json` (accounts, themes, sources, regulatory items, lookback window).
+- **Delivery:** `src/send_briefing.py` converts the markdown briefing to HTML and sends it via Gmail SMTP using `SMTP_USER`, `SMTP_PASSWORD`, and `RECIPIENT_EMAIL` env vars.
+- **Cost:** runs on your existing Claude Pro/Max plan (no separate compute charge for the cloud VM; one run/day is well within the daily routine cap).
+
+The legacy Gemini + GitHub Actions pipeline below still works and can stay as a no-subscription fallback.
+
+## Legacy architecture: Gemini collector pipeline
+
+The v2 flow is collector-first: it gathers public source candidates before Gemini writes anything, ranks them for BD relevance, and only sends a briefing when the evidence is strong enough.
 
 The email is designed as a fast-scan newsroom digest:
 
