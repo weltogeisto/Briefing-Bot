@@ -110,6 +110,33 @@ REGULATORY_TERMS = [
     "compliance",
 ]
 
+# Terms that make a broad theme hit materially relevant for a public-sector IT
+# briefing even when no configured account name appears in the headline. These
+# are intentionally narrower than theme keywords: generic "KI", "Cloud" or
+# "Digitalisierung" mentions alone are too noisy for an inbox briefing.
+ADMIN_IT_ACTION_TERMS = [
+    "verwaltungsdigitalisierung",
+    "digitale verwaltung",
+    "onlinezugangsgesetz",
+    "ozg",
+    "registermodernisierung",
+    "portalmodernisierung",
+    "fit-connect",
+    "digitaler marktplatz",
+    "plattformbetrieb",
+    "cloud plattform",
+    "cloud-plattform",
+    "souveräne cloud",
+    "sovereign cloud",
+    "rechenzentrum",
+    "it-infrastruktur",
+    "it-sicherheit",
+    "cybersicherheit",
+    "ciso",
+    "identity",
+    "iam",
+]
+
 BOUNDARY_TERMS = {
     "ki",
     "auftrag",
@@ -320,6 +347,7 @@ def make_candidate(
     procurement_hits = term_hits(text, PROCUREMENT_TERMS)
     regulatory_hits = term_hits(text, REGULATORY_TERMS)
     event_types = event_type_hits(text, leadership_hits, procurement_hits)
+    admin_it_action_hits = term_hits(text, ADMIN_IT_ACTION_TERMS)
     return {
         "title": title,
         "url": url,
@@ -336,6 +364,7 @@ def make_candidate(
         "procurement_hits": procurement_hits,
         "regulatory_hits": regulatory_hits,
         "event_types": event_types,
+        "admin_it_action_hits": admin_it_action_hits,
         "collected_at": collected_at,
     }
 
@@ -499,22 +528,37 @@ def split_relevance(candidates: List[Dict[str, Any]]) -> Tuple[List[Dict[str, An
     for candidate in candidates:
         reasons = set(candidate.get("score_reasons", []) or [])
         event_types = set(candidate.get("event_types", []) or [])
+        has_account = "account_match" in reasons
+        has_admin_it_action = bool(candidate.get("admin_it_action_hits"))
         has_material_event = bool(event_types)
         procurement_portal_hit = (
             "procurement_project" in reasons
             and candidate.get("source_type") == "procurement_search"
         )
-        trade_account_material = (
-            candidate.get("source_tier") == "trade"
-            and "account_match" in reasons
+        leadership_hits = {str(hit).casefold() for hit in candidate.get("leadership_hits", []) or []}
+        digital_leadership = bool(DIGITAL_LEADERSHIP_ROLES & leadership_hits) and "role_change" in event_types and has_account
+        named_account_material = has_account and has_material_event
+        official_admin_it_signal = (
+            candidate.get("source_tier") == "official"
+            and "theme_match" in reasons
+            and has_admin_it_action
             and has_material_event
         )
-        leadership_hits = {str(hit).casefold() for hit in candidate.get("leadership_hits", []) or []}
-        digital_leadership = bool(DIGITAL_LEADERSHIP_ROLES & leadership_hits) and "role_change" in event_types and "account_match" in reasons
-        theme_material = "theme_match" in reasons and has_material_event
-        regulatory_material = "regulatory" in reasons and ("deadline" in event_types or "account_match" in reasons)
-        named_account_material = "account_match" in reasons and has_material_event
-        if procurement_portal_hit or trade_account_material or digital_leadership or theme_material or regulatory_material or named_account_material:
+        trade_admin_it_signal = (
+            candidate.get("source_tier") == "trade"
+            and has_account
+            and has_admin_it_action
+            and has_material_event
+        )
+        regulatory_material = "regulatory" in reasons and ("deadline" in event_types or has_account)
+        if (
+            procurement_portal_hit
+            or digital_leadership
+            or named_account_material
+            or official_admin_it_signal
+            or trade_admin_it_signal
+            or regulatory_material
+        ):
             kept.append(candidate)
         else:
             rejected.append({**candidate, "rejection_reason": "below_relevance_threshold"})
